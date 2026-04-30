@@ -101,7 +101,7 @@
 - [ ] `cargo clippy` 零警告
 - [ ] `cargo test` 全部通过（含集成测试）
 - [ ] `pnpm lint`（ESLint + Prettier）零错误
-- [ ] `vue-tsc --noEmit` 零类型错误
+- [x] `vue-tsc --noEmit` 零类型错误
 - [ ] `cargo build --release` 成功
-- [ ] `pnpm build` 成功
+- [x] `pnpm build` 成功
 - [ ] M0 已有功能无回归（SQLite 连接/查询/元数据正常）

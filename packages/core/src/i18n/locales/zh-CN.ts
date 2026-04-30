@@ -44,6 +44,10 @@ export default {
   editor: {
     notConnected: '未连接',
     execute: '执行',
+    executeAll: '执行全部',
+    executeSelection: '执行选中',
+    executeStatement: '逐条执行',
+    format: '格式化',
     ctrlEnter: 'Ctrl+Enter',
     needConnection: '请先创建或选择一个数据库连接',
     placeholder: '-- 输入 SQL 语句，Ctrl+Enter 执行',

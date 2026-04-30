@@ -21,6 +21,11 @@ export {
   type LogEntry,
 } from './stores/result'
 
+export {
+  useHistoryStore,
+  type HistoryEntry,
+} from './stores/history'
+
 // Router
 export { router } from './router'
 
@@ -35,14 +40,17 @@ export {
   connect,
   disconnect,
   executeSql,
+  cancelQuery,
   getMetadata,
+  testConnection,
   type ConnectionConfig,
   type ConnectionId,
+  type ConnectionStatus,
   type QueryResult,
   type AppError,
   type ColumnInfo,
-  type RowData,
   type Metadata,
+  type TestResult,
 } from './api'
 
 // Styles

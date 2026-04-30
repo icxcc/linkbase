@@ -1,19 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NDataTable, NAlert, NTabs, NTabPane, NSpin, NEmpty, NIcon } from 'naive-ui'
+import { NAlert, NTabs, NTabPane, NSpin, NEmpty, NIcon } from 'naive-ui'
 import { CheckmarkOutline } from '@vicons/ionicons5'
+import HistoryPanel from './HistoryPanel.vue'
+import LVirtualTable from './LVirtualTable.vue'
 
 const { t } = useI18n()
 
-interface ColumnDef {
-  title: string
-  key: string
-}
-
 interface Props {
-  columns?: ColumnDef[]
-  data?: Record<string, unknown>[]
+  columns?: string[]
+  data?: unknown[][]
   loading?: boolean
   error?: string | null
   executionTime?: number
@@ -31,15 +28,6 @@ const props = withDefaults(defineProps<Props>(), {
 
 const hasRowsResult = computed(() => props.columns.length > 0 || props.data.length > 0)
 const hasModification = computed(() => props.affectedRows !== undefined && !hasRowsResult.value)
-
-const tableColumns = computed(() =>
-  props.columns.map((col) => ({
-    title: col.title,
-    key: col.key,
-    ellipsis: { tooltip: true },
-    resizable: true,
-  }))
-)
 
 const executionInfo = computed(() => {
   const parts: string[] = []
@@ -63,37 +51,30 @@ const activeTab = computed(() => (hasModification.value || !hasRowsResult.value 
 
     <NSpin v-if="loading" class="result-loading" />
 
-    <template v-else-if="hasRowsResult || hasModification || executionInfo">
-      <NTabs :default-value="activeTab" type="line" class="result-tabs">
-        <NTabPane name="results" :tab="t('result.results')">
-          <NDataTable
-            v-if="hasRowsResult"
-            :columns="tableColumns"
-            :data="data"
-            :bordered="true"
-            :single-line="false"
-            size="small"
-            class="result-table"
-            :max-height="'100%'"
-            virtual-scroll
-          />
-          <div v-else class="result-success">
-            <NIcon size="20" color="var(--lb-accent-color)"><CheckmarkOutline /></NIcon>
-            <span>{{ t('result.successLabel') + executionInfo }}</span>
-          </div>
-        </NTabPane>
-        <NTabPane name="messages" :tab="t('result.messages')">
-          <div class="result-messages">
-            <p v-if="executionInfo">{{ executionInfo }}</p>
-            <p v-else>{{ t('result.noMessages') }}</p>
-          </div>
-        </NTabPane>
-      </NTabs>
-    </template>
-
-    <div v-else class="result-empty">
-      <NEmpty :description="t('result.empty')" />
-    </div>
+    <NTabs v-else :default-value="activeTab" type="line" class="result-tabs">
+      <NTabPane name="results" :tab="t('result.results')">
+        <LVirtualTable
+          v-if="hasRowsResult"
+          :columns="columns"
+          :rows="data"
+          class="result-table"
+        />
+        <div v-else-if="hasModification || executionInfo" class="result-success">
+          <NIcon size="20" color="var(--lb-accent-color)"><CheckmarkOutline /></NIcon>
+          <span>{{ t('result.successLabel') + executionInfo }}</span>
+        </div>
+        <NEmpty v-else :description="t('result.empty')" />
+      </NTabPane>
+      <NTabPane name="messages" :tab="t('result.messages')">
+        <div class="result-messages">
+          <p v-if="executionInfo">{{ executionInfo }}</p>
+          <p v-else>{{ t('result.noMessages') }}</p>
+        </div>
+      </NTabPane>
+      <NTabPane name="history" tab="历史">
+        <HistoryPanel />
+      </NTabPane>
+    </NTabs>
   </div>
 </template>
 

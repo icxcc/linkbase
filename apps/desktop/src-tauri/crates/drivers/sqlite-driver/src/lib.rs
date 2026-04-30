@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use db_common::{
     AppError, ColumnInfo, ConnectionConfig, DatabaseMetadata, DbDriver, QueryResult, TableInfo,
+    TestResult,
 };
 use rusqlite::{types::ValueRef, Connection};
 use std::sync::Mutex;
@@ -172,5 +173,39 @@ impl DbDriver for SqliteDriver {
         }
 
         Ok(DatabaseMetadata { tables })
+    }
+
+    async fn test_connection(&mut self, config: &ConnectionConfig) -> Result<TestResult, AppError> {
+        let start = Instant::now();
+
+        let path = config.connection_string.clone();
+        if path != ":memory:" && !std::path::Path::new(&path).exists() {
+            return Err(AppError::connection_err(
+                format!("数据库文件不存在: {}", path),
+                None,
+            ));
+        }
+
+        let conn = if path == ":memory:" {
+            Connection::open_in_memory().map_err(Self::conn_err)?
+        } else {
+            Connection::open(&path).map_err(Self::conn_err)?
+        };
+
+        let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+        let version: String = conn
+            .query_row("SELECT sqlite_version()", [], |row| row.get(0))
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        let _ = conn.close();
+
+        Ok(TestResult {
+            success: true,
+            latency_ms,
+            server_version: format!("SQLite {}", version),
+            ssl_status: "N/A".to_string(),
+            driver_info: "SQLite via rusqlite".to_string(),
+        })
     }
 }

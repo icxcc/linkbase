@@ -3,6 +3,8 @@ members = [
     "crates/core",
     "crates/db-common",
     "crates/drivers/sqlite-driver",
+    "crates/drivers/mysql-driver",
+    "crates/drivers/postgres-driver",
     ".",
 ]
 resolver = "2"

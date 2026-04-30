@@ -1,0 +1,375 @@
+use async_trait::async_trait;
+use db_common::{
+    AppError, ColumnInfo, ConnectionConfig, DatabaseMetadata, DbDriver, QueryResult, TableInfo,
+    TestResult,
+};
+use sqlx::mysql::{MySqlPool, MySqlRow};
+use sqlx::{Column, Row, TypeInfo, ValueRef};
+use std::sync::Mutex;
+use std::time::Instant;
+
+pub struct MySqlDriver {
+    pool: Mutex<Option<MySqlPool>>,
+    connection_id: Mutex<Option<u32>>,
+    connection_url: Mutex<Option<String>>,
+}
+
+impl MySqlDriver {
+    pub fn new() -> Self {
+        Self {
+            pool: Mutex::new(None),
+            connection_id: Mutex::new(None),
+            connection_url: Mutex::new(None),
+        }
+    }
+
+    fn conn_err(err: sqlx::Error) -> AppError {
+        AppError::connection_err(err.to_string(), None)
+    }
+
+    fn query_err(err: sqlx::Error) -> AppError {
+        AppError::query_err(err.to_string())
+    }
+
+    fn mutex_poisoned() -> AppError {
+        AppError::other("内部锁错误")
+    }
+
+    fn not_connected() -> AppError {
+        AppError::connection_err("未连接到数据库", None)
+    }
+
+    fn is_query_statement(sql: &str) -> bool {
+        let s = sql.trim_start().to_uppercase();
+        s.starts_with("SELECT")
+            || s.starts_with("SHOW")
+            || s.starts_with("DESCRIBE")
+            || s.starts_with("EXPLAIN")
+            || s.starts_with("WITH")
+    }
+
+    fn build_mysql_url(options: &serde_json::Value, connection_string: &str) -> String {
+        if let Some(host) = options.get("host").and_then(|v| v.as_str()) {
+            let port = options
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .filter(|&p| p > 0)
+                .unwrap_or(3306);
+            let user = options
+                .get("user")
+                .and_then(|v| v.as_str())
+                .unwrap_or("root");
+            let password = options
+                .get("password")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let database = options
+                .get("database")
+                .and_then(|v| v.as_str())
+                .unwrap_or("mysql");
+
+            if password.is_empty() {
+                format!("mysql://{}@{}:{}/{}", user, host, port, database)
+            } else {
+                format!(
+                    "mysql://{}:{}@{}:{}/{}",
+                    user, password, host, port, database
+                )
+            }
+        } else if !connection_string.is_empty() && connection_string.starts_with("mysql://") {
+            connection_string.to_string()
+        } else {
+            connection_string.to_string()
+        }
+    }
+
+    fn extract_value(row: &MySqlRow, index: usize) -> Result<serde_json::Value, sqlx::Error> {
+        let raw = row.try_get_raw(index)?;
+        if raw.is_null() {
+            return Ok(serde_json::Value::Null);
+        }
+
+        let type_name = raw.type_info().name().to_uppercase();
+
+        match type_name.as_str() {
+            "JSON" => row.try_get::<serde_json::Value, _>(index),
+            "TINYINT"
+            | "SMALLINT"
+            | "MEDIUMINT"
+            | "INT"
+            | "INTEGER"
+            | "BIGINT"
+            | "YEAR"
+            | "BIT" => row
+                .try_get::<i64, _>(index)
+                .map(|v| serde_json::Value::Number(v.into())),
+            "FLOAT" | "DOUBLE" | "REAL" => row.try_get::<f64, _>(index).map(|v| {
+                serde_json::Number::from_f64(v)
+                    .map(serde_json::Value::Number)
+                    .unwrap_or(serde_json::Value::Null)
+            }),
+            "DECIMAL" | "NUMERIC" => {
+                row.try_get::<String, _>(index).map(|v| {
+                    v.parse::<serde_json::Number>()
+                        .map(serde_json::Value::Number)
+                        .unwrap_or_else(|_| serde_json::Value::String(v))
+                })
+            }
+            "BOOL" | "BOOLEAN" => row
+                .try_get::<bool, _>(index)
+                .map(serde_json::Value::Bool),
+            "BLOB" | "BINARY" | "VARBINARY" | "LONGBLOB" | "MEDIUMBLOB" | "TINYBLOB" => {
+                row.try_get::<Vec<u8>, _>(index).map(|bytes| {
+                    serde_json::Value::String(format!("<BLOB {} bytes>", bytes.len()))
+                })
+            }
+            _ => row
+                .try_get::<String, _>(index)
+                .map(serde_json::Value::String),
+        }
+    }
+}
+
+#[async_trait]
+impl DbDriver for MySqlDriver {
+    async fn connect(&mut self, config: &ConnectionConfig) -> Result<(), AppError> {
+        let url = config.connection_string.clone();
+        if url.is_empty() {
+            return Err(AppError::connection_err("连接字符串为空", None));
+        }
+
+        let pool = match MySqlPool::connect(&url).await {
+            Ok(p) => p,
+            Err(e) => {
+                let err_msg = e.to_string();
+                if err_msg.contains("timeout") || err_msg.contains("timed out") {
+                    return Err(AppError::connection_timeout(err_msg));
+                }
+                return Err(Self::conn_err(e));
+            }
+        };
+
+        let conn_id: (u64,) = sqlx::query_as("SELECT CONNECTION_ID()")
+            .fetch_one(&pool)
+            .await
+            .map_err(Self::conn_err)?;
+
+        {
+            let mut url_guard = self.connection_url.lock().map_err(|_| Self::mutex_poisoned())?;
+            *url_guard = Some(url);
+        }
+        {
+            let mut id_guard = self
+                .connection_id
+                .lock()
+                .map_err(|_| Self::mutex_poisoned())?;
+            *id_guard = Some(conn_id.0 as u32);
+        }
+        {
+            let mut pool_guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            *pool_guard = Some(pool);
+        }
+
+        Ok(())
+    }
+
+    async fn disconnect(&mut self) -> Result<(), AppError> {
+        let pool = {
+            let mut pool_guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            pool_guard.take()
+        };
+        if let Some(pool) = pool {
+            pool.close().await;
+        }
+        let mut id_guard = self
+            .connection_id
+            .lock()
+            .map_err(|_| Self::mutex_poisoned())?;
+        *id_guard = None;
+        let mut url_guard = self
+            .connection_url
+            .lock()
+            .map_err(|_| Self::mutex_poisoned())?;
+        *url_guard = None;
+        Ok(())
+    }
+
+    async fn execute(&mut self, sql: &str) -> Result<QueryResult, AppError> {
+        let start = Instant::now();
+        let pool = {
+            let guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            guard.as_ref().ok_or_else(Self::not_connected)?.clone()
+        };
+
+        if Self::is_query_statement(sql) {
+            let rows: Vec<MySqlRow> = sqlx::query::<sqlx::MySql>(sql)
+                .fetch_all(&pool)
+                .await
+                .map_err(Self::query_err)?;
+
+            let columns: Vec<ColumnInfo> = if let Some(first) = rows.first() {
+                first
+                    .columns()
+                    .iter()
+                    .map(|c| ColumnInfo {
+                        name: c.name().to_string(),
+                        data_type: c.type_info().name().to_string(),
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+
+            let col_count = columns.len();
+            let mut result_rows = Vec::with_capacity(rows.len());
+            for row in &rows {
+                let mut values = Vec::with_capacity(col_count);
+                for i in 0..col_count {
+                    let val = Self::extract_value(row, i).unwrap_or(serde_json::Value::Null);
+                    values.push(val);
+                }
+                result_rows.push(values);
+            }
+
+            let row_count = result_rows.len();
+            let execution_time = start.elapsed().as_secs_f64() * 1000.0;
+
+            Ok(QueryResult {
+                columns,
+                rows: result_rows,
+                row_count,
+                execution_time,
+                affected_rows: None,
+            })
+        } else {
+            let result = sqlx::query::<sqlx::MySql>(sql)
+                .execute(&pool)
+                .await
+                .map_err(Self::query_err)?;
+
+            let affected = result.rows_affected() as usize;
+            let execution_time = start.elapsed().as_secs_f64() * 1000.0;
+
+            Ok(QueryResult {
+                columns: vec![],
+                rows: vec![],
+                row_count: 0,
+                execution_time,
+                affected_rows: Some(affected),
+            })
+        }
+    }
+
+    async fn get_metadata(&self) -> Result<DatabaseMetadata, AppError> {
+        let pool = {
+            let guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            guard.as_ref().ok_or_else(Self::not_connected)?.clone()
+        };
+
+        let table_rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME",
+        )
+        .fetch_all(&pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        let mut tables = Vec::new();
+        for (table_name,) in table_rows {
+            let col_rows: Vec<(String, String)> = sqlx::query_as(
+                "SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
+            )
+            .bind(&table_name)
+            .fetch_all(&pool)
+            .await
+            .map_err(Self::query_err)?;
+
+            let columns: Vec<ColumnInfo> = col_rows
+                .into_iter()
+                .map(|(col_name, col_type)| ColumnInfo {
+                    name: col_name,
+                    data_type: col_type,
+                })
+                .collect();
+
+            tables.push(TableInfo {
+                name: table_name,
+                columns,
+            });
+        }
+
+        Ok(DatabaseMetadata { tables })
+    }
+
+    async fn cancel_query(&self) -> Result<(), AppError> {
+        let connection_id = {
+            let id_guard = self
+                .connection_id
+                .lock()
+                .map_err(|_| Self::mutex_poisoned())?;
+            id_guard.ok_or_else(Self::not_connected)?
+        };
+
+        let url = {
+            let url_guard = self
+                .connection_url
+                .lock()
+                .map_err(|_| Self::mutex_poisoned())?;
+            url_guard
+                .as_ref()
+                .ok_or_else(|| AppError::connection_err("连接URL不可用", None))?
+                .clone()
+        };
+
+        let temp_pool = MySqlPool::connect(url.as_str())
+            .await
+            .map_err(Self::conn_err)?;
+
+        let kill_sql = format!("KILL QUERY {}", connection_id);
+        sqlx::query::<sqlx::MySql>(&kill_sql)
+            .execute(&temp_pool)
+            .await
+            .map_err(|e| AppError::other(format!("取消查询失败: {}", e)))?;
+
+        temp_pool.close().await;
+        Ok(())
+    }
+
+    async fn test_connection(&mut self, config: &ConnectionConfig) -> Result<TestResult, AppError> {
+        let url = &config.connection_string;
+        let start = Instant::now();
+
+        let pool = MySqlPool::connect(url)
+            .await
+            .map_err(|e| {
+                let err_msg = e.to_string();
+                if err_msg.contains("timeout") || err_msg.contains("timed out") {
+                    AppError::connection_timeout(err_msg)
+                } else {
+                    Self::conn_err(e)
+                }
+            })?;
+
+        let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+        let version: (String,) = sqlx::query_as("SELECT VERSION()")
+            .fetch_one(&pool)
+            .await
+            .map_err(Self::query_err)?;
+
+        let ssl_status = if url.contains("ssl") || url.contains("tls") {
+            "已启用".to_string()
+        } else {
+            "未启用".to_string()
+        };
+
+        pool.close().await;
+
+        Ok(TestResult {
+            success: true,
+            latency_ms,
+            server_version: version.0,
+            ssl_status,
+            driver_info: "MySQL via sqlx".to_string(),
+        })
+    }
+}

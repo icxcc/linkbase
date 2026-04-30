@@ -1,75 +1,204 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NButton, NIcon, NTooltip, NAlert } from 'naive-ui'
-import { PlayOutline } from '@vicons/ionicons5'
+import { NAlert } from 'naive-ui'
+import { LButton } from '@linkbase/components'
 import { useConnectionStore } from '@linkbase/core/stores/connection'
+import { useEditorStore } from '@linkbase/core/stores/editor'
+import { useMonaco } from '../composables/useMonaco'
+import EditorTabs from './EditorTabs.vue'
 
 const { t } = useI18n()
+
 const emit = defineEmits<{
   (e: 'execute', sql: string): void
 }>()
 
-const sql = ref('')
 const connectionStore = useConnectionStore()
+const editorStore = useEditorStore()
+const { initMonaco, getEditor, getMonaco, dispose } = useMonaco()
+
+const editorContainer = useTemplateRef<HTMLElement>('editorContainer')
+const editorTabsRef = useTemplateRef<InstanceType<typeof EditorTabs>>('editorTabs')
+const editorReady = ref(false)
+
+if (editorStore.tabs.length === 0) {
+  const id = crypto.randomUUID()
+  editorStore.addTab({ id, name: 'Query 1', sql: '' })
+}
+
+const activeTab = computed(() =>
+  editorStore.tabs.find((t) => t.id === editorStore.activeTabId) ?? null
+)
 
 const activeConnectionName = computed(() => {
   const conn = connectionStore.connections.find((c) => c.id === connectionStore.currentConnectionId)
   return conn?.name ?? null
 })
 
-const canExecute = computed(() => !!activeConnectionName.value && sql.value.trim().length > 0)
+const dialect = computed(() => {
+  const conn = connectionStore.connections.find((c) => c.id === connectionStore.currentConnectionId)
+  if (!conn) return 'sql'
+  return 'sql'
+})
 
-function handleExecute() {
-  if (!canExecute.value) return
-  emit('execute', sql.value.trim())
+let isSettingValue = false
+
+onMounted(async () => {
+  await nextTick()
+  if (!editorContainer.value) return
+
+  const monaco = await getMonaco()
+  const editor = await initMonaco(editorContainer.value, {
+    value: activeTab.value?.sql ?? '',
+    language: 'sql',
+  })
+  editorReady.value = true
+
+  if (editorStore.activeTabId) {
+    editorTabsRef.value?.registerInitialSql(editorStore.activeTabId, activeTab.value?.sql ?? '')
+  }
+
+  editor.onDidChangeModelContent(() => {
+    if (isSettingValue) return
+    if (editorStore.activeTabId) {
+      editorStore.updateTabSql(editorStore.activeTabId, editor.getValue())
+    }
+  })
+
+  editor.addAction({
+    id: 'execute-sql',
+    label: 'Execute SQL',
+    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+    run: () => handleExecuteAll(),
+  })
+
+  editor.addAction({
+    id: 'format-sql',
+    label: 'Format SQL',
+    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF],
+    run: () => handleFormat(),
+  })
+})
+
+watch(() => editorStore.activeTabId, async () => {
+  await nextTick()
+  const editor = getEditor()
+  if (editor && activeTab.value) {
+    isSettingValue = true
+    editor.setValue(activeTab.value.sql)
+    isSettingValue = false
+    editor.setPosition({ lineNumber: 1, column: 1 })
+    editorTabsRef.value?.registerInitialSql(activeTab.value.id, activeTab.value.sql)
+  }
+})
+
+watch(dialect, async (lang) => {
+  const editor = getEditor()
+  const monaco = await getMonaco()
+  if (editor) {
+    monaco.editor.setModelLanguage(editor.getModel()!, lang)
+  }
+})
+
+function handleExecuteAll() {
+  if (!activeConnectionName.value || !activeTab.value?.sql.trim()) return
+  emit('execute', activeTab.value.sql.trim())
 }
 
-function handleKeydown(e: KeyboardEvent) {
-  if (e.ctrlKey && e.key === 'Enter') {
-    e.preventDefault()
-    handleExecute()
+function handleExecuteSelection() {
+  const editor = getEditor()
+  if (!editor) return
+  const selection = editor.getModel()!.getValueInRange(editor.getSelection()!)
+  if (selection.trim()) {
+    emit('execute', selection.trim())
+  }
+}
+
+function handleExecuteStatement() {
+  const editor = getEditor()
+  if (!editor) return
+  const statements = editor.getValue().split(';').map((s: string) => s.trim()).filter(Boolean)
+  for (const stmt of statements) {
+    emit('execute', stmt)
+  }
+}
+
+async function handleFormat() {
+  const editor = getEditor()
+  if (!editor) return
+  try {
+    const { format } = await import('sql-formatter')
+    const formatted = format(editor.getValue(), {
+      language: dialect.value === 'pgsql' ? 'postgresql' : (dialect.value as any),
+    })
+    isSettingValue = true
+    editor.setValue(formatted)
+    isSettingValue = false
+  } catch {
+    // sql-formatter not available, skip formatting
   }
 }
 
 function handleFill(e: Event) {
   const detail = (e as CustomEvent).detail as string
-  if (detail) sql.value = detail
+  if (!detail) return
+  const editor = getEditor()
+  if (editor) {
+    isSettingValue = true
+    editor.setValue(detail)
+    isSettingValue = false
+    if (editorStore.activeTabId) {
+      editorStore.updateTabSql(editorStore.activeTabId, detail)
+    }
+  }
 }
 
-onMounted(() => window.addEventListener('sql:fill', handleFill))
-onUnmounted(() => window.removeEventListener('sql:fill', handleFill))
+function handleExecuteRequest() {
+  setTimeout(() => handleExecuteAll(), 50)
+}
+
+onMounted(() => {
+  window.addEventListener('sql:fill', handleFill)
+  window.addEventListener('sql:execute-request', handleExecuteRequest)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('sql:fill', handleFill)
+  window.removeEventListener('sql:execute-request', handleExecuteRequest)
+  dispose()
+})
 </script>
 
 <template>
   <div class="sql-editor">
+    <EditorTabs ref="editorTabs" />
     <div class="sql-editor-toolbar">
       <div class="sql-editor-connection">
         <span v-if="activeConnectionName" class="connection-name">{{ activeConnectionName }}</span>
         <span v-else class="connection-none">{{ t('editor.notConnected') }}</span>
       </div>
-      <NTooltip trigger="hover">
-        <template #trigger>
-          <NButton type="primary" size="small" :disabled="!canExecute" @click="handleExecute">
-            <template #icon><NIcon><PlayOutline /></NIcon></template>
-            {{ t('editor.execute') }}
-          </NButton>
-        </template>
-        {{ t('editor.ctrlEnter') }}
-      </NTooltip>
+      <div class="sql-editor-actions">
+        <LButton size="small" type="primary" :disabled="!activeConnectionName" @click="handleExecuteAll">
+          {{ t('editor.executeAll') }}
+        </LButton>
+        <LButton size="small" :disabled="!activeConnectionName" @click="handleExecuteSelection">
+          {{ t('editor.executeSelection') }}
+        </LButton>
+        <LButton size="small" :disabled="!activeConnectionName" @click="handleExecuteStatement">
+          {{ t('editor.executeStatement') }}
+        </LButton>
+        <LButton size="small" @click="handleFormat">
+          {{ t('editor.format') }}
+        </LButton>
+      </div>
     </div>
 
     <NAlert v-if="!activeConnectionName" type="warning" :show-icon="false" class="sql-editor-warning">
       {{ t('editor.needConnection') }}
     </NAlert>
 
-    <textarea
-      v-model="sql"
-      class="sql-textarea"
-      :placeholder="t('editor.placeholder')"
-      spellcheck="false"
-      @keydown="handleKeydown"
-    />
+    <div ref="editorContainer" class="monaco-container" />
   </div>
 </template>
 
@@ -83,12 +212,7 @@ onUnmounted(() => window.removeEventListener('sql:fill', handleFill))
 .sql-editor-connection { font-size: 12px; color: var(--lb-text-secondary); }
 .connection-name { color: var(--lb-accent-color); font-weight: 600; }
 .connection-none { color: var(--lb-text-secondary); font-style: italic; }
+.sql-editor-actions { display: flex; gap: 4px; }
 .sql-editor-warning { margin: 0; border-radius: 0; border-left: none; border-right: none; }
-.sql-textarea {
-  flex: 1; width: 100%; border: none; outline: none; resize: none;
-  padding: 12px 16px; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Monaco', monospace;
-  font-size: 14px; line-height: 1.6; color: var(--lb-text-primary);
-  background-color: var(--lb-bg-primary); tab-size: 2;
-}
-.sql-textarea::placeholder { color: var(--lb-text-secondary); opacity: 0.5; }
+.monaco-container { flex: 1; min-height: 0; }
 </style>

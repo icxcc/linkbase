@@ -44,6 +44,10 @@ export default {
   editor: {
     notConnected: 'Not Connected',
     execute: 'Execute',
+    executeAll: 'Execute All',
+    executeSelection: 'Execute Selection',
+    executeStatement: 'Execute Statement',
+    format: 'Format',
     ctrlEnter: 'Ctrl+Enter',
     needConnection: 'Please create or select a database connection',
     placeholder: '-- Enter SQL, Ctrl+Enter to execute',

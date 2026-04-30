@@ -1,5 +1,5 @@
 use linkbase_core::ConnectionManager;
-use db_common::{AppError, ConnectionConfig, DatabaseMetadata, QueryResult};
+use db_common::{AppError, ConnectionConfig, DatabaseMetadata, QueryResult, TestResult};
 use tauri::State;
 
 #[tauri::command]
@@ -35,6 +35,22 @@ async fn get_metadata(
     state.get_metadata(&id).await
 }
 
+#[tauri::command]
+async fn cancel_query(
+    state: State<'_, ConnectionManager>,
+    id: String,
+) -> Result<(), AppError> {
+    state.cancel_query(&id).await
+}
+
+#[tauri::command]
+async fn test_connection(
+    state: State<'_, ConnectionManager>,
+    config: ConnectionConfig,
+) -> Result<TestResult, AppError> {
+    state.test_connection(config).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let connection_manager = ConnectionManager::new();
@@ -45,7 +61,9 @@ pub fn run() {
             connect,
             disconnect,
             execute_sql,
-            get_metadata
+            get_metadata,
+            cancel_query,
+            test_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

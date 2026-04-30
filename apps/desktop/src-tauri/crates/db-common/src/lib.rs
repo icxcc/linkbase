@@ -56,12 +56,48 @@ impl AppError {
         }
     }
 
+    pub fn connection_timeout(message: impl Into<String>) -> Self {
+        Self {
+            code: "ERR_CONN_TIMEOUT".to_string(),
+            message: message.into(),
+            detail: None,
+            suggestion: Some("请检查主机地址和端口是否正确，或网络连接是否正常".to_string()),
+        }
+    }
+
     pub fn query_err(message: impl Into<String>) -> Self {
         Self {
             code: "ERR_DB_QUERY".to_string(),
             message: message.into(),
             detail: None,
             suggestion: None,
+        }
+    }
+
+    pub fn query_cancelled() -> Self {
+        Self {
+            code: "ERR_QUERY_CANCELLED".to_string(),
+            message: "查询已被用户取消".to_string(),
+            detail: None,
+            suggestion: None,
+        }
+    }
+
+    pub fn driver_not_found(driver_type: impl Into<String>) -> Self {
+        Self {
+            code: "ERR_DRIVER_NOT_FOUND".to_string(),
+            message: format!("不支持的驱动类型: {}", driver_type.into()),
+            detail: None,
+            suggestion: Some("请确认已安装对应数据库的驱动插件".to_string()),
+        }
+    }
+
+    pub fn ssh_tunnel_err(message: impl Into<String>) -> Self {
+        Self {
+            code: "ERR_SSH_TUNNEL".to_string(),
+            message: message.into(),
+            detail: None,
+            suggestion: Some("请检查SSH连接参数".to_string()),
         }
     }
 
@@ -92,15 +128,25 @@ impl std::fmt::Display for AppError {
 
 impl std::error::Error for AppError {}
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestResult {
+    pub success: bool,
+    pub latency_ms: f64,
+    pub server_version: String,
+    pub ssl_status: String,
+    pub driver_info: String,
+}
+
 #[async_trait]
 pub trait DbDriver: Send + Sync {
     async fn connect(&mut self, config: &ConnectionConfig) -> Result<(), AppError>;
     async fn disconnect(&mut self) -> Result<(), AppError>;
     async fn execute(&mut self, sql: &str) -> Result<QueryResult, AppError>;
     async fn get_metadata(&self) -> Result<DatabaseMetadata, AppError>;
-}
-
-#[async_trait]
-pub trait CancellableQuery: Send + Sync {
-    async fn cancel(&self) -> Result<(), AppError>;
+    async fn cancel_query(&self) -> Result<(), AppError> {
+        Err(AppError::other("该驱动不支持取消查询"))
+    }
+    async fn test_connection(&mut self, _config: &ConnectionConfig) -> Result<TestResult, AppError> {
+        Err(AppError::other("该驱动不支持测试连接"))
+    }
 }

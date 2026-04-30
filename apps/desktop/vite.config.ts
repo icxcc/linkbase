@@ -28,7 +28,7 @@ export default defineConfig(async () => ({
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
   optimizeDeps: {
-    include: ['@tauri-apps/api', '@tauri-apps/api/core'],
+    include: ['@tauri-apps/api', '@tauri-apps/api/core', 'monaco-editor'],
   },
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {

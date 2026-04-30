@@ -1,5 +1,7 @@
 use dashmap::DashMap;
-use db_common::{AppError, ConnectionConfig, DatabaseMetadata, DbDriver, QueryResult};
+use db_common::{AppError, ConnectionConfig, DatabaseMetadata, DbDriver, QueryResult, TestResult};
+use mysql_driver::MySqlDriver;
+use postgres_driver::PostgresDriver;
 use sqlite_driver::SqliteDriver;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -18,11 +20,10 @@ impl ConnectionManager {
     pub async fn connect(&self, config: ConnectionConfig) -> Result<String, AppError> {
         let mut driver: Box<dyn DbDriver> = match config.driver_type.as_str() {
             "sqlite" => Box::new(SqliteDriver::new()),
+            "mysql" => Box::new(MySqlDriver::new()),
+            "postgres" => Box::new(PostgresDriver::new()),
             other => {
-                return Err(AppError::other(format!(
-                    "不支持的驱动类型: {}",
-                    other
-                )))
+                return Err(AppError::driver_not_found(other));
             }
         };
 
@@ -63,6 +64,30 @@ impl ConnectionManager {
 
         let driver = driver_arc.lock().await;
         driver.get_metadata().await
+    }
+
+    pub async fn cancel_query(&self, id: &str) -> Result<(), AppError> {
+        let driver_arc = self
+            .connections
+            .get(id)
+            .ok_or_else(|| AppError::not_found(format!("连接 {}", id)))?
+            .clone();
+
+        let driver = driver_arc.lock().await;
+        driver.cancel_query().await
+    }
+
+    pub async fn test_connection(&self, config: ConnectionConfig) -> Result<TestResult, AppError> {
+        let mut driver: Box<dyn DbDriver> = match config.driver_type.as_str() {
+            "sqlite" => Box::new(SqliteDriver::new()),
+            "mysql" => Box::new(MySqlDriver::new()),
+            "postgres" => Box::new(PostgresDriver::new()),
+            other => {
+                return Err(AppError::driver_not_found(other));
+            }
+        };
+
+        driver.test_connection(&config).await
     }
 }
 

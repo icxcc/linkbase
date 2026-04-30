@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NButton, NSelect, NIcon } from 'naive-ui'
-import { PlayOutline, SettingsOutline, SunnyOutline, MoonOutline, RemoveOutline, SquareOutline, CloseOutline, ServerOutline } from '@vicons/ionicons5'
+import { NSelect, NIcon } from 'naive-ui'
+import { SettingsOutline, SunnyOutline, MoonOutline, RemoveOutline, SquareOutline, CloseOutline, ServerOutline } from '@vicons/ionicons5'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '@linkbase/core/stores/app'
 import { useConnectionStore } from '@linkbase/core/stores/connection'
 import { useResultStore } from '@linkbase/core/stores/result'
-import { executeSql, getMetadata, type ColumnInfo, type Metadata } from '@linkbase/core/api'
+import { useHistoryStore } from '@linkbase/core/stores/history'
+import { executeSql, type ColumnInfo } from '@linkbase/core/api'
+import { SchemaTree } from '@linkbase/schema'
 import { type Connection } from '@linkbase/core/stores/connection'
 import ConnectionPanel from '@linkbase/connection/components/ConnectionPanel.vue'
 import SqlEditor from '@linkbase/editor/components/SqlEditor.vue'
@@ -48,22 +50,6 @@ const statusMeta = computed(() => {
   return t('status.rowsCount', { n: rowCount }) + ` | ${time}ms`
 })
 
-const metadata = ref<Metadata | null>(null)
-
-async function refreshMetadata() {
-  const id = connectionStore.currentConnectionId
-  if (!id) return
-  try {
-    metadata.value = await getMetadata(id)
-  } catch {
-    metadata.value = null
-  }
-}
-
-onMounted(() => {
-  refreshMetadata()
-})
-
 function toggleTheme() {
   appStore.setTheme(isDark.value ? 'light' : 'dark')
 }
@@ -93,7 +79,7 @@ async function handleExecute(sql: string) {
       ? t('status.queryComplete', { n: res.row_count, t: res.execution_time.toFixed(1) })
       : t('status.execSuccess', { n: res.affected_rows ?? 0, t: res.execution_time.toFixed(1) })
     resultStore.addLog({ message: msg, level: 'success' })
-    refreshMetadata()
+    useHistoryStore().addEntry(sql, currentConnectionName.value)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     resultStore.setError(message)
@@ -103,14 +89,8 @@ async function handleExecute(sql: string) {
   }
 }
 
-function handleTableDoubleClick(tableName: string) {
-  const selectAll = `SELECT * FROM ${tableName} LIMIT 100`
-  window.dispatchEvent(new CustomEvent('sql:fill', { detail: selectAll }))
-}
-
 function handleConnectionChanged(id: string | null) {
   connectionStore.setCurrentConnection(id)
-  refreshMetadata()
 }
 
 const currentConnectionName = computed(() =>
@@ -118,18 +98,11 @@ const currentConnectionName = computed(() =>
 )
 
 const resultColumns = computed(() =>
-  (resultStore.results[0]?.columns ?? []).map((c: string): { title: string; key: string } => ({ title: c, key: c })),
+  (resultStore.results[0]?.columns ?? []) as string[],
 )
 
 const resultData = computed(() =>
-  (resultStore.results[0]?.rows ?? []).map((row: unknown[]) => {
-    const obj: Record<string, unknown> = {}
-    const cols = resultStore.results[0]?.columns ?? []
-    for (let i = 0; i < cols.length; i++) {
-      obj[cols[i]] = row[i]
-    }
-    return obj
-  }),
+  (resultStore.results[0]?.rows ?? []) as unknown[][],
 )
 
 function minimizeWindow() { appWindow?.minimize() }
@@ -224,32 +197,12 @@ function startResizeVertical(e: MouseEvent) {
           @update:value="handleConnectionChanged"
         />
       </div>
-      <div class="toolbar-right">
-        <NButton type="primary" size="small" @click="handleExecute('')">
-          <template #icon>
-            <NIcon><PlayOutline /></NIcon>
-          </template>
-          {{ t('toolbar.execute') }}
-        </NButton>
-      </div>
     </div>
 
     <div class="main-content">
       <div class="sidebar" :style="{ width: sidebarWidth + 'px' }">
         <ConnectionPanel @connection-changed="handleConnectionChanged" />
-        <div v-if="metadata && metadata.tables.length" class="table-list">
-          <div class="table-list-title">{{ t('tableList.title', { n: metadata.tables.length }) }}</div>
-          <div
-            v-for="tb in metadata.tables"
-            :key="tb.name"
-            class="table-item"
-            @dblclick="handleTableDoubleClick(tb.name)"
-            :title="t('tableList.dblclickHint', { name: tb.name })"
-          >
-            <span class="table-name">{{ tb.name }}</span>
-            <span class="table-cols">{{ t('tableList.columnsCount', { n: tb.columns.length }) }}</span>
-          </div>
-        </div>
+        <SchemaTree />
       </div>
 
       <div
@@ -353,18 +306,6 @@ function startResizeVertical(e: MouseEvent) {
 .splitter-horizontal { width: 3px; cursor: col-resize; }
 .splitter-vertical { height: 3px; cursor: row-resize; }
 .splitter:hover, .splitter.resizing { background-color: var(--lb-accent-color); }
-.table-list { flex: 1; overflow-y: auto; border-top: 1px solid var(--lb-border-color); padding: 8px 0; }
-.table-list-title {
-  padding: 4px 16px; font-size: 11px; font-weight: 600;
-  color: var(--lb-text-secondary); text-transform: uppercase; letter-spacing: 0.05em;
-}
-.table-item {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 5px 16px; cursor: pointer; transition: background-color 0.1s; font-size: 13px;
-}
-.table-item:hover { background-color: var(--lb-hover-bg); }
-.table-name { color: var(--lb-text-primary); font-weight: 500; }
-.table-cols { font-size: 11px; color: var(--lb-text-secondary); }
 .status-bar {
   display: flex; align-items: center; justify-content: space-between;
   height: 26px; padding: 0 12px; background-color: var(--lb-bg-secondary);

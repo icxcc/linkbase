@@ -8,6 +8,8 @@ export interface ConnectionConfig {
 
 export type ConnectionId = string
 
+export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'
+
 export interface ColumnInfo {
   name: string
   data_type: string
@@ -32,7 +34,6 @@ function extractErrorMessage(error: unknown): string {
   if (typeof error === 'string') return error
   if (error instanceof Error) return error.message
   if (error && typeof error === 'object') {
-    // Tauri 2 might pass the AppError as an object directly
     const obj = error as Record<string, unknown>
     if (typeof obj.message === 'string') return obj.message
   }
@@ -51,14 +52,31 @@ export async function disconnect(id: ConnectionId): Promise<void> {
   return invoke<void>('disconnect', { id })
 }
 
+export interface TestResult {
+  success: boolean
+  latency_ms: number
+  server_version: string
+  ssl_status: string
+  driver_info: string
+}
+
+export async function testConnection(config: ConnectionConfig): Promise<TestResult> {
+  return invoke<TestResult>('test_connection', { config })
+}
+
 export async function executeSql(id: ConnectionId, sql: string): Promise<QueryResult> {
   return invoke<QueryResult>('execute_sql', { id, sql })
+}
+
+export async function cancelQuery(id: ConnectionId): Promise<void> {
+  return invoke<void>('cancel_query', { id })
 }
 
 export interface Metadata {
   tables: { name: string; columns: { name: string; data_type: string }[] }[]
   databases?: string[]
   views?: string[]
+  driver_type?: string
 }
 
 export async function getMetadata(id: ConnectionId): Promise<Metadata> {
