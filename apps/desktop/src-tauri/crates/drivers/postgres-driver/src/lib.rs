@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use db_common::{
-    AppError, ColumnInfo, ConnectionConfig, DatabaseMetadata, DbDriver, QueryResult, TableInfo,
-    TestResult,
+    AppError, ColumnInfo, ConnectionConfig, DatabaseMetadata, DbDriver, IndexInfo, QueryResult,
+    RoutineInfo, SchemaInfo, SequenceInfo, TableInfo, TestResult, ViewInfo,
 };
 use sqlx::{Column, Row};
 use std::sync::Mutex;
@@ -44,64 +44,15 @@ impl PostgresDriver {
             || s.starts_with("DESCRIBE")
             || s.starts_with("SHOW")
     }
-
-    fn build_url_from_options(options: &serde_json::Value) -> Result<String, AppError> {
-        let host = options["host"].as_str().unwrap_or("localhost");
-        let port = options["port"].as_u64().filter(|&p| p > 0).unwrap_or(5432);
-        let user = options["user"].as_str().unwrap_or("postgres");
-        let password = options["password"].as_str().unwrap_or("");
-        let database = options["database"].as_str().unwrap_or("postgres");
-        let sslmode = options["sslmode"].as_str().unwrap_or("prefer");
-
-        let mut url = String::from("postgres://");
-
-        if !user.is_empty() {
-            url.push_str(user);
-            if !password.is_empty() {
-                url.push(':');
-                // URL-encode password to handle special characters
-                url.push_str(
-                    &urlencoding_maybe(password),
-                );
-            }
-            url.push('@');
-        }
-
-        url.push_str(host);
-        url.push(':');
-        url.push_str(&port.to_string());
-        url.push('/');
-        url.push_str(database);
-
-        if !sslmode.is_empty() {
-            url.push_str("?sslmode=");
-            url.push_str(sslmode);
-        }
-
-        Ok(url)
-    }
-}
-
-fn urlencoding_maybe(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            ':' | '@' | '/' | '?' | '#' | '[' | ']' | '%' | ' ' => {
-                result.push_str(&format!("%{:02X}", ch as u8));
-            }
-            _ => result.push(ch),
-        }
-    }
-    result
 }
 
 #[async_trait]
 impl DbDriver for PostgresDriver {
     async fn connect(&mut self, config: &ConnectionConfig) -> Result<(), AppError> {
-        if config.connection_string.is_empty() {
+        let url = config.build_connection_string();
+        if url.is_empty() {
             return Err(AppError::connection_err("连接字符串为空", None));
         }
-        let url = config.connection_string.clone();
 
         let pool = match sqlx::PgPool::connect(&url).await {
             Ok(p) => p,
@@ -166,7 +117,10 @@ impl DbDriver for PostgresDriver {
                     .iter()
                     .map(|col| ColumnInfo {
                         name: col.name().to_string(),
-                        data_type: String::new(),
+                        data_type: col.type_info().name().to_string(),
+                        nullable: None,
+                        default_value: None,
+                        is_primary_key: false,
                     })
                     .collect()
             } else {
@@ -222,50 +176,44 @@ impl DbDriver for PostgresDriver {
             guard.as_ref().ok_or_else(Self::not_connected)?.clone()
         };
 
-        let table_rows = sqlx::query(
-            "SELECT table_schema, table_name FROM information_schema.tables \
-             WHERE table_schema NOT IN ('pg_catalog', 'information_schema') \
-             ORDER BY table_schema, table_name",
+        let schema_rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT schema_name FROM information_schema.schemata \
+             WHERE schema_name NOT IN ('pg_catalog', 'information_schema') \
+             ORDER BY schema_name",
         )
         .fetch_all(&pool)
         .await
         .map_err(Self::query_err)?;
 
-        let mut tables = Vec::new();
+        let mut schemas = Vec::new();
 
-        for trow in &table_rows {
-            let schema: String = trow.try_get(0).unwrap_or_default();
-            let table_name: String = trow.try_get(1).unwrap_or_default();
-            let full_name = format!("{}.{}", schema, table_name);
+        for (schema_name,) in schema_rows {
+            let tables = Self::fetch_tables(&pool, &schema_name).await?;
+            let views = Self::fetch_views(&pool, &schema_name).await?;
+            let materialized_views = Self::fetch_materialized_views(&pool, &schema_name).await?;
+            let functions = Self::fetch_routines(&pool, &schema_name, "FUNCTION").await?;
+            let procedures = Self::fetch_routines(&pool, &schema_name, "PROCEDURE").await?;
+            let sequences = Self::fetch_sequences(&pool, &schema_name).await?;
+            let indexes = Self::fetch_indexes(&pool, &schema_name).await?;
 
-            let col_rows = sqlx::query(
-                "SELECT column_name, data_type FROM information_schema.columns \
-                 WHERE table_schema = $1 AND table_name = $2 \
-                 ORDER BY ordinal_position",
-            )
-            .bind(&schema)
-            .bind(&table_name)
-            .fetch_all(&pool)
-            .await
-            .map_err(Self::query_err)?;
-
-            let mut columns = Vec::with_capacity(col_rows.len());
-            for crow in &col_rows {
-                let col_name: String = crow.try_get(0).unwrap_or_default();
-                let col_type: String = crow.try_get(1).unwrap_or_default();
-                columns.push(ColumnInfo {
-                    name: col_name,
-                    data_type: col_type,
-                });
-            }
-
-            tables.push(TableInfo {
-                name: full_name,
-                columns,
+            schemas.push(SchemaInfo {
+                name: schema_name,
+                tables,
+                views,
+                materialized_views,
+                functions,
+                procedures,
+                sequences,
+                indexes,
             });
         }
 
-        Ok(DatabaseMetadata { tables })
+        Ok(DatabaseMetadata {
+            driver_type: "postgres".to_string(),
+            databases: vec![],
+            schemas,
+            tables: vec![],
+        })
     }
 
     async fn cancel_query(&self) -> Result<(), AppError> {
@@ -288,7 +236,7 @@ impl DbDriver for PostgresDriver {
     }
 
     async fn test_connection(&mut self, config: &ConnectionConfig) -> Result<TestResult, AppError> {
-        let url = config.connection_string.clone();
+        let url = config.build_connection_string();
         if url.is_empty() {
             return Err(AppError::connection_err("连接字符串为空", None));
         }
@@ -327,5 +275,175 @@ impl DbDriver for PostgresDriver {
             ssl_status,
             driver_info: "PostgreSQL via sqlx".to_string(),
         })
+    }
+}
+
+impl PostgresDriver {
+    async fn fetch_tables(
+        pool: &sqlx::PgPool,
+        schema: &str,
+    ) -> Result<Vec<TableInfo>, AppError> {
+        let table_rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT table_name FROM information_schema.tables \
+             WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        let mut tables = Vec::new();
+        for (table_name,) in table_rows {
+            let columns = Self::fetch_columns(pool, schema, &table_name).await?;
+            tables.push(TableInfo {
+                name: table_name,
+                schema: Some(schema.to_string()),
+                columns,
+                indexes: vec![],
+                constraints: vec![],
+            });
+        }
+        Ok(tables)
+    }
+
+    async fn fetch_views(
+        pool: &sqlx::PgPool,
+        schema: &str,
+    ) -> Result<Vec<ViewInfo>, AppError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT table_name FROM information_schema.views \
+             WHERE table_schema = $1 ORDER BY table_name",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(name,)| ViewInfo {
+                name,
+                schema: Some(schema.to_string()),
+                definition: None,
+            })
+            .collect())
+    }
+
+    async fn fetch_materialized_views(
+        pool: &sqlx::PgPool,
+        schema: &str,
+    ) -> Result<Vec<ViewInfo>, AppError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT matviewname FROM pg_matviews WHERE schemaname = $1 ORDER BY matviewname",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(name,)| ViewInfo {
+                name,
+                schema: Some(schema.to_string()),
+                definition: None,
+            })
+            .collect())
+    }
+
+    async fn fetch_columns(
+        pool: &sqlx::PgPool,
+        schema: &str,
+        table_name: &str,
+    ) -> Result<Vec<ColumnInfo>, AppError> {
+        let col_rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT column_name, data_type, is_nullable, column_default \
+             FROM information_schema.columns \
+             WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position",
+        )
+        .bind(schema)
+        .bind(table_name)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(col_rows
+            .into_iter()
+            .map(|(col_name, col_type, nullable, default_val)| ColumnInfo {
+                name: col_name,
+                data_type: col_type,
+                nullable: Some(nullable.eq_ignore_ascii_case("YES")),
+                default_value: default_val,
+                is_primary_key: false,
+            })
+            .collect())
+    }
+
+    async fn fetch_routines(
+        pool: &sqlx::PgPool,
+        schema: &str,
+        routine_type: &str,
+    ) -> Result<Vec<RoutineInfo>, AppError> {
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT routine_name, data_type FROM information_schema.routines \
+             WHERE routine_schema = $1 AND routine_type = $2 ORDER BY routine_name",
+        )
+        .bind(schema)
+        .bind(routine_type)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(name, return_type)| RoutineInfo {
+                name,
+                routine_type: routine_type.to_string(),
+                return_type,
+            })
+            .collect())
+    }
+
+    async fn fetch_sequences(
+        pool: &sqlx::PgPool,
+        schema: &str,
+    ) -> Result<Vec<SequenceInfo>, AppError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT sequence_name FROM information_schema.sequences \
+             WHERE sequence_schema = $1 ORDER BY sequence_name",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(name,)| SequenceInfo { name })
+            .collect())
+    }
+
+    async fn fetch_indexes(
+        pool: &sqlx::PgPool,
+        schema: &str,
+    ) -> Result<Vec<IndexInfo>, AppError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT indexname FROM pg_indexes \
+             WHERE schemaname = $1 ORDER BY indexname",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(name,)| IndexInfo {
+                name,
+                columns: vec![],
+                unique: false,
+                primary: false,
+            })
+            .collect())
     }
 }

@@ -4,15 +4,102 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionConfig {
     pub driver_type: String,
-    pub connection_string: String,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub user: Option<String>,
+    pub password: Option<String>,
+    pub database: Option<String>,
+    pub connection_string: Option<String>,
     #[serde(default)]
     pub options: serde_json::Value,
+}
+
+impl ConnectionConfig {
+    pub fn build_connection_string(&self) -> String {
+        if let Some(ref cs) = self.connection_string {
+            if !cs.is_empty() {
+                return cs.clone();
+            }
+        }
+        match self.driver_type.as_str() {
+            "sqlite" => self.connection_string.clone().unwrap_or_default(),
+            "mysql" => {
+                let host = self.host.as_deref().unwrap_or("localhost");
+                let port = self.port.unwrap_or(3306);
+                let user = self.user.as_deref().unwrap_or("root");
+                let password = self.password.as_deref().unwrap_or("");
+                if let Some(ref db) = self.database {
+                    if password.is_empty() {
+                        format!("mysql://{}@{}:{}/{}", user, host, port, db)
+                    } else {
+                        format!("mysql://{}:{}@{}:{}/{}", user, password, host, port, db)
+                    }
+                } else if password.is_empty() {
+                    format!("mysql://{}@{}:{}", user, host, port)
+                } else {
+                    format!("mysql://{}:{}@{}:{}", user, password, host, port)
+                }
+            }
+            "postgres" => {
+                let host = self.host.as_deref().unwrap_or("localhost");
+                let port = self.port.unwrap_or(5432);
+                let user = self.user.as_deref().unwrap_or("postgres");
+                let password = self.password.as_deref().unwrap_or("");
+                let database = self.database.as_deref().unwrap_or("postgres");
+                let sslmode = self
+                    .options
+                    .get("sslmode")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("prefer");
+
+                let mut url = String::from("postgres://");
+                if !user.is_empty() {
+                    url.push_str(user);
+                    if !password.is_empty() {
+                        url.push(':');
+                        url.push_str(&encode_url_component(password));
+                    }
+                    url.push('@');
+                }
+                url.push_str(host);
+                url.push(':');
+                url.push_str(&port.to_string());
+                url.push('/');
+                url.push_str(database);
+                if !sslmode.is_empty() {
+                    url.push_str("?sslmode=");
+                    url.push_str(sslmode);
+                }
+                url
+            }
+            _ => self.connection_string.clone().unwrap_or_default(),
+        }
+    }
+}
+
+fn encode_url_component(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            ':' | '@' | '/' | '?' | '#' | '[' | ']' | '%' | ' ' => {
+                result.push_str(&format!("%{:02X}", ch as u8));
+            }
+            _ => result.push(ch),
+        }
+    }
+    result
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nullable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+    #[serde(default)]
+    pub is_primary_key: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,11 +115,99 @@ pub struct QueryResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TableInfo {
     pub name: String,
+    pub schema: Option<String>,
     pub columns: Vec<ColumnInfo>,
+    #[serde(default)]
+    pub indexes: Vec<IndexInfo>,
+    #[serde(default)]
+    pub constraints: Vec<ConstraintInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewInfo {
+    pub name: String,
+    pub schema: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutineInfo {
+    pub name: String,
+    pub routine_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub return_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SequenceInfo {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexInfo {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub unique: bool,
+    pub primary: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstraintInfo {
+    pub name: String,
+    pub constraint_type: String,
+    pub columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInfo {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseInfo {
+    pub name: String,
+    #[serde(default)]
+    pub tables: Vec<TableInfo>,
+    #[serde(default)]
+    pub views: Vec<ViewInfo>,
+    #[serde(default)]
+    pub functions: Vec<RoutineInfo>,
+    #[serde(default)]
+    pub procedures: Vec<RoutineInfo>,
+    #[serde(default)]
+    pub users: Vec<UserInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchemaInfo {
+    pub name: String,
+    #[serde(default)]
+    pub tables: Vec<TableInfo>,
+    #[serde(default)]
+    pub views: Vec<ViewInfo>,
+    #[serde(default)]
+    pub materialized_views: Vec<ViewInfo>,
+    #[serde(default)]
+    pub functions: Vec<RoutineInfo>,
+    #[serde(default)]
+    pub procedures: Vec<RoutineInfo>,
+    #[serde(default)]
+    pub sequences: Vec<SequenceInfo>,
+    #[serde(default)]
+    pub indexes: Vec<IndexInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseMetadata {
+    pub driver_type: String,
+    #[serde(default)]
+    pub databases: Vec<DatabaseInfo>,
+    #[serde(default)]
+    pub schemas: Vec<SchemaInfo>,
+    #[serde(default)]
     pub tables: Vec<TableInfo>,
 }
 

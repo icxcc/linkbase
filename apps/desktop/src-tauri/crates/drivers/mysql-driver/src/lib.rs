@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use db_common::{
-    AppError, ColumnInfo, ConnectionConfig, DatabaseMetadata, DbDriver, QueryResult, TableInfo,
-    TestResult,
+    AppError, ColumnInfo, ConnectionConfig, DatabaseInfo, DatabaseMetadata, DbDriver, QueryResult,
+    RoutineInfo, TableInfo, TestResult, UserInfo, ViewInfo,
 };
 use sqlx::mysql::{MySqlPool, MySqlRow};
 use sqlx::{Column, Row, TypeInfo, ValueRef};
@@ -46,41 +46,6 @@ impl MySqlDriver {
             || s.starts_with("DESCRIBE")
             || s.starts_with("EXPLAIN")
             || s.starts_with("WITH")
-    }
-
-    fn build_mysql_url(options: &serde_json::Value, connection_string: &str) -> String {
-        if let Some(host) = options.get("host").and_then(|v| v.as_str()) {
-            let port = options
-                .get("port")
-                .and_then(|v| v.as_u64())
-                .filter(|&p| p > 0)
-                .unwrap_or(3306);
-            let user = options
-                .get("user")
-                .and_then(|v| v.as_str())
-                .unwrap_or("root");
-            let password = options
-                .get("password")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let database = options
-                .get("database")
-                .and_then(|v| v.as_str())
-                .unwrap_or("mysql");
-
-            if password.is_empty() {
-                format!("mysql://{}@{}:{}/{}", user, host, port, database)
-            } else {
-                format!(
-                    "mysql://{}:{}@{}:{}/{}",
-                    user, password, host, port, database
-                )
-            }
-        } else if !connection_string.is_empty() && connection_string.starts_with("mysql://") {
-            connection_string.to_string()
-        } else {
-            connection_string.to_string()
-        }
     }
 
     fn extract_value(row: &MySqlRow, index: usize) -> Result<serde_json::Value, sqlx::Error> {
@@ -133,7 +98,7 @@ impl MySqlDriver {
 #[async_trait]
 impl DbDriver for MySqlDriver {
     async fn connect(&mut self, config: &ConnectionConfig) -> Result<(), AppError> {
-        let url = config.connection_string.clone();
+        let url = config.build_connection_string();
         if url.is_empty() {
             return Err(AppError::connection_err("连接字符串为空", None));
         }
@@ -155,7 +120,10 @@ impl DbDriver for MySqlDriver {
             .map_err(Self::conn_err)?;
 
         {
-            let mut url_guard = self.connection_url.lock().map_err(|_| Self::mutex_poisoned())?;
+            let mut url_guard = self
+                .connection_url
+                .lock()
+                .map_err(|_| Self::mutex_poisoned())?;
             *url_guard = Some(url);
         }
         {
@@ -214,6 +182,9 @@ impl DbDriver for MySqlDriver {
                     .map(|c| ColumnInfo {
                         name: c.name().to_string(),
                         data_type: c.type_info().name().to_string(),
+                        nullable: None,
+                        default_value: None,
+                        is_primary_key: false,
                     })
                     .collect()
             } else {
@@ -266,38 +237,41 @@ impl DbDriver for MySqlDriver {
             guard.as_ref().ok_or_else(Self::not_connected)?.clone()
         };
 
-        let table_rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME",
-        )
-        .fetch_all(&pool)
-        .await
-        .map_err(Self::query_err)?;
+        let db_rows: Vec<(String,)> =
+            sqlx::query_as("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA ORDER BY SCHEMA_NAME")
+                .fetch_all(&pool)
+                .await
+                .map_err(Self::query_err)?;
 
-        let mut tables = Vec::new();
-        for (table_name,) in table_rows {
-            let col_rows: Vec<(String, String)> = sqlx::query_as(
-                "SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
-            )
-            .bind(&table_name)
-            .fetch_all(&pool)
-            .await
-            .map_err(Self::query_err)?;
+        let mut databases = Vec::new();
 
-            let columns: Vec<ColumnInfo> = col_rows
-                .into_iter()
-                .map(|(col_name, col_type)| ColumnInfo {
-                    name: col_name,
-                    data_type: col_type,
-                })
-                .collect();
+        for (db_name,) in db_rows {
+            let tables = Self::fetch_tables(&pool, &db_name).await?;
+            let views = Self::fetch_views(&pool, &db_name).await?;
+            let functions = Self::fetch_routines(&pool, &db_name, "FUNCTION").await?;
+            let procedures = Self::fetch_routines(&pool, &db_name, "PROCEDURE").await?;
 
-            tables.push(TableInfo {
-                name: table_name,
-                columns,
+            databases.push(DatabaseInfo {
+                name: db_name,
+                tables,
+                views,
+                functions,
+                procedures,
+                users: vec![],
             });
         }
 
-        Ok(DatabaseMetadata { tables })
+        let users = Self::fetch_users(&pool).await?;
+        if let Some(default_db) = databases.first_mut() {
+            default_db.users = users;
+        }
+
+        Ok(DatabaseMetadata {
+            driver_type: "mysql".to_string(),
+            databases,
+            schemas: vec![],
+            tables: vec![],
+        })
     }
 
     async fn cancel_query(&self) -> Result<(), AppError> {
@@ -335,10 +309,10 @@ impl DbDriver for MySqlDriver {
     }
 
     async fn test_connection(&mut self, config: &ConnectionConfig) -> Result<TestResult, AppError> {
-        let url = &config.connection_string;
+        let url = config.build_connection_string();
         let start = Instant::now();
 
-        let pool = MySqlPool::connect(url)
+        let pool = MySqlPool::connect(&url)
             .await
             .map_err(|e| {
                 let err_msg = e.to_string();
@@ -371,5 +345,128 @@ impl DbDriver for MySqlDriver {
             ssl_status,
             driver_info: "MySQL via sqlx".to_string(),
         })
+    }
+}
+
+impl MySqlDriver {
+    async fn fetch_tables(
+        pool: &MySqlPool,
+        database: &str,
+    ) -> Result<Vec<TableInfo>, AppError> {
+        let table_rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES \
+             WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME",
+        )
+        .bind(database)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        let mut tables = Vec::new();
+        for (table_name, _) in table_rows {
+            let columns = Self::fetch_columns(pool, database, &table_name).await?;
+            tables.push(TableInfo {
+                name: table_name,
+                schema: Some(database.to_string()),
+                columns,
+                indexes: vec![],
+                constraints: vec![],
+            });
+        }
+        Ok(tables)
+    }
+
+    async fn fetch_views(
+        pool: &MySqlPool,
+        database: &str,
+    ) -> Result<Vec<ViewInfo>, AppError> {
+        let view_rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT TABLE_NAME FROM information_schema.TABLES \
+             WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'VIEW' ORDER BY TABLE_NAME",
+        )
+        .bind(database)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(view_rows
+            .into_iter()
+            .map(|(name,)| ViewInfo {
+                name,
+                schema: Some(database.to_string()),
+                definition: None,
+            })
+            .collect())
+    }
+
+    async fn fetch_columns(
+        pool: &MySqlPool,
+        database: &str,
+        table_name: &str,
+    ) -> Result<Vec<ColumnInfo>, AppError> {
+        let col_rows: Vec<(String, String, String, Option<String>, String)> = sqlx::query_as(
+            "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY \
+             FROM information_schema.COLUMNS \
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
+        )
+        .bind(database)
+        .bind(table_name)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(col_rows
+            .into_iter()
+            .map(|(col_name, col_type, nullable, default_val, column_key)| ColumnInfo {
+                name: col_name,
+                data_type: col_type,
+                nullable: Some(nullable.eq_ignore_ascii_case("YES")),
+                default_value: default_val,
+                is_primary_key: column_key.eq_ignore_ascii_case("PRI"),
+            })
+            .collect())
+    }
+
+    async fn fetch_routines(
+        pool: &MySqlPool,
+        database: &str,
+        routine_type: &str,
+    ) -> Result<Vec<RoutineInfo>, AppError> {
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT ROUTINE_NAME, DTD_IDENTIFIER FROM information_schema.ROUTINES \
+             WHERE ROUTINE_SCHEMA = ? AND ROUTINE_TYPE = ? ORDER BY ROUTINE_NAME",
+        )
+        .bind(database)
+        .bind(routine_type)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(name, return_type)| RoutineInfo {
+                name,
+                routine_type: routine_type.to_string(),
+                return_type,
+            })
+            .collect())
+    }
+
+    async fn fetch_users(pool: &MySqlPool) -> Result<Vec<UserInfo>, AppError> {
+        let rows: Result<Vec<(String, String)>, _> =
+            sqlx::query_as("SELECT user, host FROM mysql.user ORDER BY user")
+                .fetch_all(pool)
+                .await;
+
+        match rows {
+            Ok(users) => Ok(users
+                .into_iter()
+                .map(|(name, host)| UserInfo {
+                    name,
+                    host: Some(host),
+                })
+                .collect()),
+            Err(_) => Ok(vec![]),
+        }
     }
 }

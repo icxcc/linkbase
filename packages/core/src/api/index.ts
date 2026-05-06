@@ -1,8 +1,15 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 
+export type DriverType = 'sqlite' | 'mysql' | 'postgres' | 'oracle'
+
 export interface ConnectionConfig {
   driver_type: string
-  connection_string: string
+  host?: string
+  port?: number
+  user?: string
+  password?: string
+  database?: string
+  connection_string?: string
   options?: Record<string, unknown>
 }
 
@@ -13,6 +20,9 @@ export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'disconnect
 export interface ColumnInfo {
   name: string
   data_type: string
+  nullable?: boolean
+  default_value?: string
+  is_primary_key?: boolean
 }
 
 export interface QueryResult {
@@ -72,15 +82,81 @@ export async function cancelQuery(id: ConnectionId): Promise<void> {
   return invoke<void>('cancel_query', { id })
 }
 
-export interface Metadata {
-  tables: { name: string; columns: { name: string; data_type: string }[] }[]
-  databases?: string[]
-  views?: string[]
-  driver_type?: string
+export interface IndexInfo {
+  name: string
+  columns: string[]
+  unique: boolean
+  primary: boolean
 }
 
-export async function getMetadata(id: ConnectionId): Promise<Metadata> {
-  return invoke<Metadata>('get_metadata', { id })
+export interface ConstraintInfo {
+  name: string
+  constraint_type: string
+  columns: string[]
+}
+
+export interface TableInfo {
+  name: string
+  schema?: string
+  columns: ColumnInfo[]
+  indexes?: IndexInfo[]
+  constraints?: ConstraintInfo[]
+}
+
+export interface ViewInfo {
+  name: string
+  schema?: string
+  definition?: string
+}
+
+export interface RoutineInfo {
+  name: string
+  routine_type: string
+  return_type?: string
+}
+
+export interface SequenceInfo {
+  name: string
+}
+
+export interface UserInfo {
+  name: string
+  host?: string
+}
+
+export interface DatabaseInfo {
+  name: string
+  tables?: TableInfo[]
+  views?: ViewInfo[]
+  functions?: RoutineInfo[]
+  procedures?: RoutineInfo[]
+  users?: UserInfo[]
+}
+
+export interface SchemaInfo {
+  name: string
+  tables?: TableInfo[]
+  views?: ViewInfo[]
+  materialized_views?: ViewInfo[]
+  functions?: RoutineInfo[]
+  procedures?: RoutineInfo[]
+  sequences?: SequenceInfo[]
+  indexes?: IndexInfo[]
+}
+
+export interface DatabaseMetadata {
+  driver_type: string
+  databases?: DatabaseInfo[]
+  schemas?: SchemaInfo[]
+  tables?: TableInfo[]
+}
+
+export async function getMetadata(id: ConnectionId): Promise<DatabaseMetadata> {
+  return invoke<DatabaseMetadata>('get_metadata', { id })
+}
+
+export async function getEnhancedMetadata(id: ConnectionId): Promise<DatabaseMetadata> {
+  return invoke<DatabaseMetadata>('get_enhanced_metadata', { id })
 }
 
 export { extractErrorMessage }

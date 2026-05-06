@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use db_common::{
-    AppError, ColumnInfo, ConnectionConfig, DatabaseMetadata, DbDriver, QueryResult, TableInfo,
-    TestResult,
+    AppError, ColumnInfo, ConnectionConfig, DatabaseMetadata, DbDriver, IndexInfo, QueryResult,
+    TableInfo, TestResult, ViewInfo,
 };
 use rusqlite::{types::ValueRef, Connection};
 use std::sync::Mutex;
@@ -47,7 +47,16 @@ impl SqliteDriver {
 #[async_trait]
 impl DbDriver for SqliteDriver {
     async fn connect(&mut self, config: &ConnectionConfig) -> Result<(), AppError> {
-        let path = config.connection_string.clone();
+        let path = config.build_connection_string();
+        let path = if path.is_empty() {
+            config
+                .connection_string
+                .as_deref()
+                .unwrap_or(":memory:")
+                .to_string()
+        } else {
+            path
+        };
         let conn = if path == ":memory:" {
             Connection::open_in_memory().map_err(Self::conn_err)?
         } else {
@@ -80,6 +89,9 @@ impl DbDriver for SqliteDriver {
                 .map(|n| ColumnInfo {
                     name: n.clone(),
                     data_type: "TEXT".to_string(),
+                    nullable: None,
+                    default_value: None,
+                    is_primary_key: false,
                 })
                 .collect();
 
@@ -140,45 +152,31 @@ impl DbDriver for SqliteDriver {
         let guard = self.conn.lock().map_err(|_| Self::mutex_poisoned())?;
         let conn = guard.as_ref().ok_or_else(Self::not_connected)?;
 
-        let mut stmt = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-            .map_err(Self::query_err)?;
+        let tables = Self::fetch_tables(conn)?;
+        let views = Self::fetch_views(conn)?;
 
-        let table_names: Vec<String> = stmt
-            .query_map([], |row| row.get(0))
-            .map_err(Self::query_err)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(Self::query_err)?;
-
-        let mut tables = Vec::new();
-        for name in table_names {
-            let pragma_sql = format!("PRAGMA table_info({})", name);
-            let mut stmt = conn.prepare(&pragma_sql).map_err(Self::query_err)?;
-            let col_iter = stmt
-                .query_map([], |row| {
-                    let col_name: String = row.get(1)?;
-                    let col_type: String = row.get(2)?;
-                    Ok(ColumnInfo {
-                        name: col_name,
-                        data_type: col_type,
-                    })
-                })
-                .map_err(Self::query_err)?;
-
-            let columns: Vec<ColumnInfo> = col_iter
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(Self::query_err)?;
-
-            tables.push(TableInfo { name, columns });
-        }
-
-        Ok(DatabaseMetadata { tables })
+        Ok(DatabaseMetadata {
+            driver_type: "sqlite".to_string(),
+            databases: vec![],
+            schemas: vec![],
+            tables,
+        })
     }
 
     async fn test_connection(&mut self, config: &ConnectionConfig) -> Result<TestResult, AppError> {
         let start = Instant::now();
 
-        let path = config.connection_string.clone();
+        let path = config.build_connection_string();
+        let path = if path.is_empty() {
+            config
+                .connection_string
+                .as_deref()
+                .unwrap_or(":memory:")
+                .to_string()
+        } else {
+            path
+        };
+
         if path != ":memory:" && !std::path::Path::new(&path).exists() {
             return Err(AppError::connection_err(
                 format!("数据库文件不存在: {}", path),
@@ -207,5 +205,107 @@ impl DbDriver for SqliteDriver {
             ssl_status: "N/A".to_string(),
             driver_info: "SQLite via rusqlite".to_string(),
         })
+    }
+}
+
+impl SqliteDriver {
+    fn fetch_tables(conn: &Connection) -> Result<Vec<TableInfo>, AppError> {
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+            .map_err(Self::query_err)?;
+
+        let table_names: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(Self::query_err)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Self::query_err)?;
+
+        let mut tables = Vec::new();
+        for name in table_names {
+            let columns = Self::fetch_columns(conn, &name)?;
+            let indexes = Self::fetch_table_indexes(conn, &name)?;
+            tables.push(TableInfo {
+                name,
+                schema: None,
+                columns,
+                indexes,
+                constraints: vec![],
+            });
+        }
+        Ok(tables)
+    }
+
+    fn fetch_views(conn: &Connection) -> Result<Vec<ViewInfo>, AppError> {
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='view' ORDER BY name")
+            .map_err(Self::query_err)?;
+
+        let views: Vec<ViewInfo> = stmt
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(ViewInfo {
+                    name,
+                    schema: None,
+                    definition: None,
+                })
+            })
+            .map_err(Self::query_err)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Self::query_err)?;
+
+        Ok(views)
+    }
+
+    fn fetch_columns(
+        conn: &Connection,
+        table_name: &str,
+    ) -> Result<Vec<ColumnInfo>, AppError> {
+        let pragma_sql = format!("PRAGMA table_info({})", table_name);
+        let mut stmt = conn.prepare(&pragma_sql).map_err(Self::query_err)?;
+        let col_iter = stmt
+            .query_map([], |row| {
+                let col_name: String = row.get(1)?;
+                let col_type: String = row.get(2)?;
+                let not_null: i32 = row.get(3)?;
+                let default_val: Option<String> = row.get(4)?;
+                let pk: i32 = row.get(5)?;
+                Ok(ColumnInfo {
+                    name: col_name,
+                    data_type: col_type,
+                    nullable: Some(not_null == 0),
+                    default_value: default_val,
+                    is_primary_key: pk > 0,
+                })
+            })
+            .map_err(Self::query_err)?;
+
+        col_iter
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Self::query_err)
+    }
+
+    fn fetch_table_indexes(
+        conn: &Connection,
+        table_name: &str,
+    ) -> Result<Vec<IndexInfo>, AppError> {
+        let pragma_sql = format!("PRAGMA index_list({})", table_name);
+        let mut stmt = conn.prepare(&pragma_sql).map_err(Self::query_err)?;
+        let idx_iter = stmt
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                let unique: i32 = row.get(2)?;
+                let origin: String = row.get(3)?;
+                Ok(IndexInfo {
+                    name,
+                    columns: vec![],
+                    unique: unique == 1,
+                    primary: origin.eq_ignore_ascii_case("pk"),
+                })
+            })
+            .map_err(Self::query_err)?;
+
+        idx_iter
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Self::query_err)
     }
 }

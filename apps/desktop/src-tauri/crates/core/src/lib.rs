@@ -66,6 +66,10 @@ impl ConnectionManager {
         driver.get_metadata().await
     }
 
+    pub async fn get_enhanced_metadata(&self, id: &str) -> Result<DatabaseMetadata, AppError> {
+        self.get_metadata(id).await
+    }
+
     pub async fn cancel_query(&self, id: &str) -> Result<(), AppError> {
         let driver_arc = self
             .connections

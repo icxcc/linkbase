@@ -36,6 +36,14 @@ async fn get_metadata(
 }
 
 #[tauri::command]
+async fn get_enhanced_metadata(
+    state: State<'_, ConnectionManager>,
+    id: String,
+) -> Result<DatabaseMetadata, AppError> {
+    state.get_enhanced_metadata(&id).await
+}
+
+#[tauri::command]
 async fn cancel_query(
     state: State<'_, ConnectionManager>,
     id: String,
@@ -62,6 +70,7 @@ pub fn run() {
             disconnect,
             execute_sql,
             get_metadata,
+            get_enhanced_metadata,
             cancel_query,
             test_connection
         ])
