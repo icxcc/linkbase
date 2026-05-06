@@ -58,6 +58,7 @@ function toggleLocale() {
 }
 
 const showCreateDialog = ref(false)
+const editingConnectionId = ref<string | undefined>(undefined)
 
 async function handleExecute(sql: string) {
   const connectionId = connectionStore.currentConnectionId
@@ -204,6 +205,7 @@ function startResizeVertical(e: MouseEvent) {
       <div class="sidebar" :style="{ width: sidebarWidth + 'px' }">
         <ConnectionTree
           @open-create-dialog="showCreateDialog = true"
+          @open-edit-dialog="(id) => { editingConnectionId = id; showCreateDialog = true }"
           @execute-sql="handleExecute"
         />
       </div>
@@ -252,7 +254,8 @@ function startResizeVertical(e: MouseEvent) {
 
     <ConnectionDialog
       :visible="showCreateDialog"
-      @close="showCreateDialog = false"
+      :connection-id="editingConnectionId"
+      @close="() => { showCreateDialog = false; editingConnectionId = undefined }"
     />
   </div>
 </template>

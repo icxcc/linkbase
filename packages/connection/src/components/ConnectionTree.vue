@@ -66,6 +66,7 @@ import { LContextMenu } from '@linkbase/components'
 
 const emit = defineEmits<{
   openCreateDialog: []
+  openEditDialog: [connectionId: string]
   executeSql: [sql: string]
 }>()
 
@@ -463,6 +464,98 @@ async function loadConnectionChildren(connId: string): Promise<void> {
   }
 }
 
+async function refreshConnection(connId: string): Promise<void> {
+  const c = connectionStore.connections.find((x) => x.id === connId)
+  if (!c || c.status !== 'connected') return
+
+  try {
+    connectionMetadata.value.delete(connId)
+    
+    const meta = await getEnhancedMetadata(connId)
+    connectionMetadata.value.set(connId, meta)
+
+    const template = TREE_NODE_TEMPLATES[c.driver_type as DriverType]
+    if (!template) return
+
+    const children: TreeOptionWithMeta[] = []
+
+    if (template.rootContainerType === 'databases') {
+      const databases = meta.databases || []
+      for (const db of databases) {
+        const dbKey = `conn/${connId}/db/${db.name}`
+        const dbChildren: TreeOptionWithMeta[] = []
+        for (const category of template.categories) {
+          const catChildren = buildCategoryChildren(category, db.name, undefined, connId, db, {} as SchemaInfo, [], dbKey)
+          if (catChildren.length > 0) {
+            const catNode: TreeOptionWithMeta = {
+              key: `${dbKey}/cat/${category.key}`,
+              label: category.label,
+              children: catChildren,
+              prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
+              isLeaf: false,
+            }
+            dbChildren.push(catNode)
+          }
+        }
+        const dbNode: TreeOptionWithMeta = {
+          key: dbKey,
+          label: db.name,
+          children: dbChildren,
+          prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
+          isLeaf: false,
+        }
+        children.push(dbNode)
+      }
+    } else if (template.rootContainerType === 'schemas') {
+      const schemas = meta.schemas || []
+      for (const schema of schemas) {
+        const schKey = `conn/${connId}/schema/${schema.name}`
+        const schChildren: TreeOptionWithMeta[] = []
+        for (const category of template.categories) {
+          const catChildren = buildCategoryChildren(category, undefined, schema.name, connId, {} as DatabaseInfo, schema, [], schKey)
+          if (catChildren.length > 0) {
+            const catNode: TreeOptionWithMeta = {
+              key: `${schKey}/cat/${category.key}`,
+              label: category.label,
+              children: catChildren,
+              prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
+              isLeaf: false,
+            }
+            schChildren.push(catNode)
+          }
+        }
+        const schNode: TreeOptionWithMeta = {
+          key: schKey,
+          label: schema.name,
+          children: schChildren,
+          prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
+          isLeaf: false,
+        }
+        children.push(schNode)
+      }
+    } else {
+      const tables = meta.tables || []
+      for (const category of template.categories) {
+        const catChildren = buildCategoryChildren(category, undefined, undefined, connId, {} as DatabaseInfo, {} as SchemaInfo, tables, `conn/${connId}`)
+        if (catChildren.length > 0) {
+          const catNode: TreeOptionWithMeta = {
+            key: `conn/${connId}/cat/${category.key}`,
+            label: category.label,
+            children: catChildren,
+            prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
+            isLeaf: false,
+          }
+          children.push(catNode)
+        }
+      }
+    }
+
+    updateTreeNode(`conn/${connId}`, { children })
+  } catch (err) {
+    console.error('Failed to refresh connection:', err)
+  }
+}
+
 function updateTreeNode(key: string, updates: Partial<TreeOption>) {
   function walk(nodes: TreeOption[]): boolean {
     for (const node of nodes) {
@@ -523,6 +616,8 @@ function showContextMenu(e: MouseEvent, node: TreeOption, nodeData?: TreeNodeDat
       items = [
         { key: 'connConnect', label: '连接', icon: 'Link' },
         { key: 'connDisconnect', label: '断开', icon: 'Unlink' },
+        { key: 'connEdit', label: '编辑', icon: 'Edit' },
+        { key: 'connRefresh', label: '刷新', icon: 'Refresh' },
         { key: 'connTest', label: '测试连接', icon: 'Pulse' },
         { key: 'connDelete', label: '删除', icon: 'Trash' },
       ]
@@ -594,6 +689,12 @@ function onContextMenuSelect(key: string) {
       break
     case 'connDisconnect':
       if (nodeData?.connectionId) handleDisconnect(nodeData.connectionId)
+      break
+    case 'connEdit':
+      if (nodeData?.connectionId) emit('openEditDialog', nodeData.connectionId)
+      break
+    case 'connRefresh':
+      if (nodeData?.connectionId) refreshConnection(nodeData.connectionId)
       break
     case 'connTest':
       if (nodeData?.connectionId) handleTestConnection(nodeData.connectionId)

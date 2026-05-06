@@ -98,6 +98,15 @@ impl MySqlDriver {
 #[async_trait]
 impl DbDriver for MySqlDriver {
     async fn connect(&mut self, config: &ConnectionConfig) -> Result<(), AppError> {
+        if let Some(port) = config.port {
+            if port > 65535 {
+                return Err(AppError::connection_err(
+                    format!("无效的端口号: {}", port),
+                    Some("端口号必须在 1-65535 范围内"),
+                ));
+            }
+        }
+
         let url = config.build_connection_string();
         if url.is_empty() {
             return Err(AppError::connection_err("连接字符串为空", None));
@@ -110,7 +119,10 @@ impl DbDriver for MySqlDriver {
                 if err_msg.contains("timeout") || err_msg.contains("timed out") {
                     return Err(AppError::connection_timeout(err_msg));
                 }
-                return Err(Self::conn_err(e));
+                return Err(AppError::connection_err(
+                    format!("连接失败: {}, {}", url, err_msg),
+                    None,
+                ));
             }
         };
 
@@ -309,6 +321,15 @@ impl DbDriver for MySqlDriver {
     }
 
     async fn test_connection(&mut self, config: &ConnectionConfig) -> Result<TestResult, AppError> {
+        if let Some(port) = config.port {
+            if port > 65535 {
+                return Err(AppError::connection_err(
+                    format!("无效的端口号: {}", port),
+                    Some("端口号必须在 1-65535 范围内"),
+                ));
+            }
+        }
+
         let url = config.build_connection_string();
         let start = Instant::now();
 
@@ -319,7 +340,10 @@ impl DbDriver for MySqlDriver {
                 if err_msg.contains("timeout") || err_msg.contains("timed out") {
                     AppError::connection_timeout(err_msg)
                 } else {
-                    Self::conn_err(e)
+                    AppError::connection_err(
+                        format!("连接失败: {}, {}", url, err_msg),
+                        None,
+                    )
                 }
             })?;
 

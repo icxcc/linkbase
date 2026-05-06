@@ -1,5 +1,5 @@
 <template>
-  <LModal :show="visible" :title="$t('connection.newConnection')" @close="$emit('close')">
+  <LModal :show="visible" :title="isEditing ? $t('connection.editConnection') : $t('connection.newConnection')" @close="$emit('close')">
     <div class="conn-dialog">
       <div class="conn-dialog-left">
         <div
@@ -73,7 +73,7 @@ import { connect, testConnection as testConnectionApi, type ConnectionConfig } f
 import { DRIVER_CONFIGS } from '../config/database-types'
 import type { DriverType, DriverConfig, DriverFieldConfig } from '../config/database-types'
 
-const props = defineProps<{ visible: boolean; editingConnectionId?: string }>()
+const props = defineProps<{ visible: boolean; connectionId?: string }>()
 const emit = defineEmits<{ close: [] }>()
 
 const connectionStore = useConnectionStore()
@@ -124,6 +124,37 @@ function onFileSelected(e: Event) {
   }
 }
 
+const isEditing = computed(() => !!props.connectionId)
+
+watch(() => props.visible, (val) => {
+  if (val) {
+    if (props.connectionId) {
+      loadConnection(props.connectionId)
+    } else {
+      selectedDriver.value = 'sqlite'
+      initForm('sqlite')
+    }
+    testResult.value = null
+    testError.value = ''
+  }
+})
+
+async function loadConnection(id: string) {
+  const conn = connectionStore.connections.find(c => c.id === id)
+  if (!conn) return
+
+  selectedDriver.value = conn.driver_type as DriverType
+  initForm(conn.driver_type as DriverType)
+  
+  formModel.name = conn.name
+  if (conn.host) formModel.host = conn.host
+  if (conn.port) formModel.port = conn.port
+  if (conn.user) formModel.user = conn.user
+  if (conn.username) formModel.user = conn.username
+  if (conn.database) formModel.database = conn.database
+  if (conn.connection_string) formModel.filePath = conn.connection_string
+}
+
 function initForm(driverType: DriverType) {
   const cfg = DRIVER_CONFIGS[driverType]
   const keys = Object.keys(formModel)
@@ -135,15 +166,6 @@ function initForm(driverType: DriverType) {
   }
   formModel.name = cfg.connectionNameTemplate
 }
-
-watch(() => props.visible, (val) => {
-  if (val) {
-    selectedDriver.value = 'sqlite'
-    initForm('sqlite')
-    testResult.value = null
-    testError.value = ''
-  }
-})
 
 function selectDriver(type: DriverType) {
   selectedDriver.value = type
@@ -157,10 +179,24 @@ function buildConfig(): ConnectionConfig {
   if (formModel.charset) options.charset = formModel.charset
   if (formModel.sslmode) options.sslmode = formModel.sslmode
 
+  const portValue = formModel.port
+  const config = DRIVER_CONFIGS[selectedDriver.value]
+  const defaultPort = config.defaultPort
+  
+  let port: number | undefined
+  
+  if (typeof portValue === 'number' && !isNaN(portValue) && portValue > 0 && portValue <= 65535) {
+    port = Math.floor(portValue)
+  } else if (defaultPort > 0) {
+    port = defaultPort
+  }
+
+  const hostValue = (formModel.host as string) || 'localhost'
+
   return {
     driver_type: selectedDriver.value,
-    host: (formModel.host as string) || undefined,
-    port: (formModel.port as number) || undefined,
+    host: hostValue || undefined,
+    port,
     user: (formModel.user as string) || undefined,
     password: (formModel.password as string) || undefined,
     database: (formModel.database as string) || undefined,
@@ -179,30 +215,73 @@ async function handleTestConnection() {
     const result = await testConnectionApi(config)
     testResult.value = result
   } catch (err) {
-    testError.value = err instanceof Error ? err.message : String(err)
+    testError.value = parseConnectionError(err)
     testResult.value = { success: false, server_version: '', latency_ms: 0 }
   }
+}
+
+function parseConnectionError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message
+  }
+  if (typeof err === 'object' && err !== null) {
+    const obj = err as Record<string, unknown>
+    if (obj.message) {
+      return String(obj.message)
+    }
+    if (obj.error) {
+      return String(obj.error)
+    }
+  }
+  if (typeof err === 'string') {
+    try {
+      const parsed = JSON.parse(err)
+      if (parsed.message) {
+        return String(parsed.message)
+      }
+      return err
+    } catch {
+      return err
+    }
+  }
+  return String(err)
 }
 
 async function handleSave() {
   if (!formModel.name) return
   try {
     const config = buildConfig()
-    const backendId = await connect(config)
-    connectionStore.addConnection({
-      id: backendId,
-      name: (formModel.name as string) || 'Unnamed',
-      host: (formModel.host as string) || undefined,
-      port: (formModel.port as number) || undefined,
-      user: (formModel.user as string) || undefined,
-      username: (formModel.user as string) || undefined,
-      database: (formModel.database as string) || undefined,
-      driver_type: selectedDriver.value,
-      connection_string: config.connection_string,
-      options: config.options,
-    })
-    connectionStore.updateConnectionStatus(backendId, 'connected')
-    connectionStore.setCurrentConnection(backendId)
+    
+    if (props.connectionId) {
+      await connect(config)
+      connectionStore.updateConnection(props.connectionId, {
+        name: (formModel.name as string) || 'Unnamed',
+        host: (formModel.host as string) || undefined,
+        port: (formModel.port as number) || undefined,
+        user: (formModel.user as string) || undefined,
+        username: (formModel.user as string) || undefined,
+        database: (formModel.database as string) || undefined,
+        driver_type: selectedDriver.value,
+        connection_string: config.connection_string,
+        options: config.options,
+      })
+    } else {
+      const backendId = await connect(config)
+      connectionStore.addConnection({
+        id: backendId,
+        name: (formModel.name as string) || 'Unnamed',
+        host: (formModel.host as string) || undefined,
+        port: (formModel.port as number) || undefined,
+        user: (formModel.user as string) || undefined,
+        username: (formModel.user as string) || undefined,
+        database: (formModel.database as string) || undefined,
+        driver_type: selectedDriver.value,
+        connection_string: config.connection_string,
+        options: config.options,
+      })
+      connectionStore.updateConnectionStatus(backendId, 'connected')
+      connectionStore.setCurrentConnection(backendId)
+    }
     emit('close')
   } catch (err) {
     console.error('Connection failed:', err)

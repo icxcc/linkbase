@@ -28,16 +28,17 @@ impl ConnectionConfig {
                 let port = self.port.unwrap_or(3306);
                 let user = self.user.as_deref().unwrap_or("root");
                 let password = self.password.as_deref().unwrap_or("");
+                let encoded_password = encode_url_component(password);
                 if let Some(ref db) = self.database {
-                    if password.is_empty() {
+                    if encoded_password.is_empty() {
                         format!("mysql://{}@{}:{}/{}", user, host, port, db)
                     } else {
-                        format!("mysql://{}:{}@{}:{}/{}", user, password, host, port, db)
+                        format!("mysql://{}:{}@{}:{}/{}", user, encoded_password, host, port, db)
                     }
-                } else if password.is_empty() {
+                } else if encoded_password.is_empty() {
                     format!("mysql://{}@{}:{}", user, host, port)
                 } else {
-                    format!("mysql://{}:{}@{}:{}", user, password, host, port)
+                    format!("mysql://{}:{}@{}:{}", user, encoded_password, host, port)
                 }
             }
             "postgres" => {
