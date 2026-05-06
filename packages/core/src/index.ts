@@ -42,6 +42,7 @@ export {
   executeSql,
   cancelQuery,
   getMetadata,
+  getEnhancedMetadata,
   testConnection,
   type ConnectionConfig,
   type ConnectionId,
@@ -49,8 +50,18 @@ export {
   type QueryResult,
   type AppError,
   type ColumnInfo,
-  type Metadata,
+  type TableInfo,
+  type ViewInfo,
+  type RoutineInfo,
+  type SequenceInfo,
+  type IndexInfo,
+  type ConstraintInfo,
+  type UserInfo,
+  type DatabaseInfo,
+  type SchemaInfo,
+  type DatabaseMetadata,
   type TestResult,
+  type DriverType,
 } from './api'
 
 // Styles

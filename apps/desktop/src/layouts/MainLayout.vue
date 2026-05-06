@@ -9,9 +9,8 @@ import { useConnectionStore } from '@linkbase/core/stores/connection'
 import { useResultStore } from '@linkbase/core/stores/result'
 import { useHistoryStore } from '@linkbase/core/stores/history'
 import { executeSql, type ColumnInfo } from '@linkbase/core/api'
-import { SchemaTree } from '@linkbase/schema'
+import { ConnectionTree, ConnectionDialog } from '@linkbase/connection'
 import { type Connection } from '@linkbase/core/stores/connection'
-import ConnectionPanel from '@linkbase/connection/components/ConnectionPanel.vue'
 import SqlEditor from '@linkbase/editor/components/SqlEditor.vue'
 import ResultPanel from '@linkbase/result/components/ResultPanel.vue'
 
@@ -57,6 +56,8 @@ function toggleTheme() {
 function toggleLocale() {
   appStore.setLocale(appStore.locale === 'zh-CN' ? 'en' : 'zh-CN')
 }
+
+const showCreateDialog = ref(false)
 
 async function handleExecute(sql: string) {
   const connectionId = connectionStore.currentConnectionId
@@ -161,16 +162,16 @@ function startResizeVertical(e: MouseEvent) {
       </div>
       <div class="titlebar-center" data-tauri-drag-region />
       <div class="titlebar-actions">
-        <button class="titlebar-btn" :title="t('titlebar.settings')">
+        <button class="titlebar-btn" :title="$t('titlebar.settings')">
           <NIcon size="16"><SettingsOutline /></NIcon>
         </button>
-        <button class="titlebar-btn" :title="t('titlebar.toggleTheme')" @click="toggleTheme">
+        <button class="titlebar-btn" :title="$t('titlebar.toggleTheme')" @click="toggleTheme">
           <NIcon size="16">
             <SunnyOutline v-if="isDark" />
             <MoonOutline v-else />
           </NIcon>
         </button>
-        <button class="titlebar-btn" :title="t('titlebar.toggleLocale')" @click="toggleLocale" style="width:auto;padding:0 6px;font-size:11px;">
+        <button class="titlebar-btn" :title="$t('titlebar.toggleLocale')" @click="toggleLocale" style="width:auto;padding:0 6px;font-size:11px;">
           {{ appStore.locale === 'zh-CN' ? 'EN' : '中' }}
         </button>
         <div class="titlebar-spacer" />
@@ -191,7 +192,7 @@ function startResizeVertical(e: MouseEvent) {
         <NSelect
           v-model:value="currentConnection"
           :options="connectionOptions"
-          :placeholder="t('toolbar.selectConnection')"
+          :placeholder="$t('toolbar.selectConnection')"
           size="small"
           style="width: 220px"
           @update:value="handleConnectionChanged"
@@ -201,8 +202,10 @@ function startResizeVertical(e: MouseEvent) {
 
     <div class="main-content">
       <div class="sidebar" :style="{ width: sidebarWidth + 'px' }">
-        <ConnectionPanel @connection-changed="handleConnectionChanged" />
-        <SchemaTree />
+        <ConnectionTree
+          @open-create-dialog="showCreateDialog = true"
+          @execute-sql="handleExecute"
+        />
       </div>
 
       <div
@@ -246,6 +249,11 @@ function startResizeVertical(e: MouseEvent) {
         <span class="status-meta">{{ statusMeta }}</span>
       </div>
     </div>
+
+    <ConnectionDialog
+      :visible="showCreateDialog"
+      @close="showCreateDialog = false"
+    />
   </div>
 </template>
 

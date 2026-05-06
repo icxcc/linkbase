@@ -1,4 +1,8 @@
 export default {
+  common: {
+    cancel: '取消',
+    browse: '浏览',
+  },
   titlebar: {
     settings: '设置',
     toggleTheme: '切换主题',
@@ -40,6 +44,11 @@ export default {
     enterPath: '请输入文件路径',
     connectedStatus: '已连接',
     notConnectedStatus: '未连接',
+    testConnection: '测试连接',
+    searchPlaceholder: '搜索...',
+    browse: '浏览',
+    testSuccess: '连接成功! 服务器版本: {version}, 延迟: {latency}ms',
+    testFail: '连接失败: {message}',
   },
   editor: {
     notConnected: '未连接',

@@ -3,7 +3,7 @@ use db_common::{
     AppError, ColumnInfo, ConnectionConfig, DatabaseMetadata, DbDriver, IndexInfo, QueryResult,
     RoutineInfo, SchemaInfo, SequenceInfo, TableInfo, TestResult, ViewInfo,
 };
-use sqlx::{Column, Row};
+use sqlx::{Column, Row, TypeInfo};
 use std::sync::Mutex;
 use std::time::Instant;
 

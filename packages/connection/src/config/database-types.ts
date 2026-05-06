@@ -1,4 +1,5 @@
-import type { DriverType, ColumnInfo } from '@linkbase/core/api'
+import type { DriverType } from '@linkbase/core/api'
+export type { DriverType }
 
 export interface DriverFieldConfig {
   key: string

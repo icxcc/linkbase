@@ -1,4 +1,8 @@
 export default {
+  common: {
+    cancel: 'Cancel',
+    browse: 'Browse',
+  },
   titlebar: {
     settings: 'Settings',
     toggleTheme: 'Toggle Theme',
@@ -40,6 +44,11 @@ export default {
     enterPath: 'Please enter file path',
     connectedStatus: 'Connected',
     notConnectedStatus: 'Not Connected',
+    testConnection: 'Test Connection',
+    searchPlaceholder: 'Search...',
+    browse: 'Browse',
+    testSuccess: 'Connected! Version: {version}, Latency: {latency}ms',
+    testFail: 'Connection failed: {message}',
   },
   editor: {
     notConnected: 'Not Connected',

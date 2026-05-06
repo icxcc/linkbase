@@ -152,14 +152,25 @@ impl DbDriver for SqliteDriver {
         let guard = self.conn.lock().map_err(|_| Self::mutex_poisoned())?;
         let conn = guard.as_ref().ok_or_else(Self::not_connected)?;
 
-        let tables = Self::fetch_tables(conn)?;
+        let mut metadata_tables = Self::fetch_tables(conn)?;
         let views = Self::fetch_views(conn)?;
+
+        let driver_views: Vec<db_common::ViewInfo> = views;
+        for view in &driver_views {
+            metadata_tables.push(TableInfo {
+                name: view.name.clone(),
+                schema: None,
+                columns: vec![],
+                indexes: vec![],
+                constraints: vec![],
+            })
+        }
 
         Ok(DatabaseMetadata {
             driver_type: "sqlite".to_string(),
             databases: vec![],
             schemas: vec![],
-            tables,
+            tables: metadata_tables,
         })
     }
 
