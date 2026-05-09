@@ -49,6 +49,9 @@ export default {
     browse: 'Browse',
     testSuccess: 'Connected! Version: {version}, Latency: {latency}ms',
     testFail: 'Connection failed: {message}',
+    editConnection: 'Edit Connection',
+    folder: 'Folder',
+    noFolder: 'No Folder',
   },
   editor: {
     notConnected: 'Not Connected',

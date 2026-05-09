@@ -203,9 +203,25 @@ export const useConnectionStore = defineStore('connection', () => {
     if (conn) conn.status = status
   }
 
+  function updateConnectionBackendId(id: string, backendId: string) {
+    const conn = connections.value.find((c) => c.id === id)
+    if (conn) conn.id = backendId
+  }
+
   function updateConnection(id: string, updates: Partial<Connection>) {
     const conn = connections.value.find((c) => c.id === id)
-    if (conn) Object.assign(conn, updates)
+    if (!conn) return
+    
+    const configUpdates: Partial<Connection> = {}
+    for (const [key, value] of Object.entries(updates)) {
+      if (key !== 'status') {
+        configUpdates[key as keyof Connection] = value
+      }
+    }
+    
+    if (Object.keys(configUpdates).length === 0) return
+    
+    Object.assign(conn, configUpdates)
     saveToBackend(connections.value, folders.value)
   }
 
@@ -293,6 +309,7 @@ export const useConnectionStore = defineStore('connection', () => {
     setCurrentConnection,
     updateConnectionStatus,
     updateConnection,
+    updateConnectionBackendId,
     addFolder,
     removeFolder,
     renameFolder,

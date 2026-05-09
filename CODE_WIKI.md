@@ -6,21 +6,21 @@
 
 ### 1.1 技术栈
 
-| 层次 | 技术 | 说明 |
-|-----|------|------|
-| 前端框架 | Vue 3 | Composition API + `<script setup>` |
-| 状态管理 | Pinia | 模块化状态管理 |
-| 路由 | Vue Router | 单页应用路由 |
-| 构建工具 | Vite | 快速开发构建 |
-| UI组件 | TailwindCSS + 自研组件库 | 扁平化设计风格 |
-| 编辑器 | Monaco Editor | SQL 语法高亮与补全 |
-| 桌面框架 | Tauri | 跨平台桌面应用 |
-| 后端语言 | Rust | 高性能数据库驱动 |
-| 数据库驱动 | sqlx, rusqlite | 原生驱动实现 |
+| 层次    | 技术                  | 说明                                 |
+| ----- | ------------------- | ---------------------------------- |
+| 前端框架  | Vue 3               | Composition API + `<script setup>` |
+| 状态管理  | Pinia               | 模块化状态管理                            |
+| 路由    | Vue Router          | 单页应用路由                             |
+| 构建工具  | Vite                | 快速开发构建                             |
+| UI组件  | TailwindCSS + 自研组件库 | 扁平化设计风格                            |
+| 编辑器   | Monaco Editor       | SQL 语法高亮与补全                        |
+| 桌面框架  | Tauri               | 跨平台桌面应用                            |
+| 后端语言  | Rust                | 高性能数据库驱动                           |
+| 数据库驱动 | sqlx, rusqlite      | 原生驱动实现                             |
 
 ### 1.2 核心特性
 
-- 支持 SQLite、MySQL、PostgreSQL 原生驱动
+- 支持 SQLite、MySQL、PostgreSQL 等关系型数据原生驱动
 - 多标签页 SQL 编辑器
 - 虚拟滚动高性能表格
 - 连接分组管理
@@ -28,7 +28,7 @@
 - 国际化支持（中文/英文）
 - 主题切换（亮色/暗色/系统）
 
----
+***
 
 ## 2. 项目架构
 
@@ -70,15 +70,15 @@
 
 ### 2.2 模块划分
 
-| 模块 | 路径 | 职责 |
-|-----|------|------|
-| **core** | `packages/core/` | 应用壳、状态管理、API封装、路由、i18n |
-| **components** | `packages/components/` | 通用UI组件库 |
-| **connection** | `packages/connection/` | 连接管理UI、数据库类型配置 |
-| **editor** | `packages/editor/` | SQL编辑器、Monaco集成 |
-| **result** | `packages/result/` | 结果集展示、虚拟表格 |
-| **schema** | `packages/schema/` | 数据库对象树状浏览 |
-| **desktop** | `apps/desktop/` | Tauri桌面应用入口 |
+| 模块             | 路径                     | 职责                     |
+| -------------- | ---------------------- | ---------------------- |
+| **core**       | `packages/core/`       | 应用壳、状态管理、API封装、路由、i18n |
+| **components** | `packages/components/` | 通用UI组件库                |
+| **connection** | `packages/connection/` | 连接管理UI、数据库类型配置         |
+| **editor**     | `packages/editor/`     | SQL编辑器、Monaco集成        |
+| **result**     | `packages/result/`     | 结果集展示、虚拟表格             |
+| **schema**     | `packages/schema/`     | 数据库对象树状浏览              |
+| **desktop**    | `apps/desktop/`        | Tauri桌面应用入口            |
 
 ### 2.3 Rust Crates 结构
 
@@ -96,7 +96,7 @@ src-tauri/
 │   └── main.rs         # 应用入口
 ```
 
----
+***
 
 ## 3. 前端核心模块
 
@@ -122,6 +122,7 @@ export interface Connection {
 ```
 
 **核心方法**：
+
 - `addConnection()` - 添加新连接
 - `removeConnection(id)` - 删除连接
 - `setCurrentConnection(id)` - 设置当前连接
@@ -141,6 +142,7 @@ export interface Tab {
 ```
 
 **核心方法**：
+
 - `addTab(tab)` - 添加标签页
 - `closeTab(id)` - 关闭标签页
 - `setActiveTab(id)` - 设置活动标签页
@@ -167,6 +169,7 @@ export interface LogEntry {
 ```
 
 **核心方法**：
+
 - `setResults(value)` - 设置查询结果
 - `setError(message)` - 设置错误信息
 - `addLog(entry)` - 添加日志条目
@@ -182,6 +185,7 @@ export type Locale = 'zh-CN' | 'en'
 ```
 
 **核心方法**：
+
 - `setTheme(value)` - 设置主题
 - `setLocale(value)` - 设置语言
 - `toggleSidebar()` - 切换侧边栏状态
@@ -224,14 +228,14 @@ export interface AppError {
 
 **暴露的API方法**：
 
-| 方法 | 说明 | 参数 | 返回值 |
-|-----|------|------|--------|
-| `connect(config)` | 建立数据库连接 | `ConnectionConfig` | `ConnectionId` |
-| `disconnect(id)` | 断开连接 | `ConnectionId` | `void` |
-| `executeSql(id, sql)` | 执行SQL | `ConnectionId`, `string` | `QueryResult` |
-| `cancelQuery(id)` | 取消查询 | `ConnectionId` | `void` |
-| `getMetadata(id)` | 获取数据库元数据 | `ConnectionId` | `DatabaseMetadata` |
-| `testConnection(config)` | 测试连接 | `ConnectionConfig` | `TestResult` |
+| 方法                       | 说明       | 参数                       | 返回值                |
+| ------------------------ | -------- | ------------------------ | ------------------ |
+| `connect(config)`        | 建立数据库连接  | `ConnectionConfig`       | `ConnectionId`     |
+| `disconnect(id)`         | 断开连接     | `ConnectionId`           | `void`             |
+| `executeSql(id, sql)`    | 执行SQL    | `ConnectionId`, `string` | `QueryResult`      |
+| `cancelQuery(id)`        | 取消查询     | `ConnectionId`           | `void`             |
+| `getMetadata(id)`        | 获取数据库元数据 | `ConnectionId`           | `DatabaseMetadata` |
+| `testConnection(config)` | 测试连接     | `ConnectionConfig`       | `TestResult`       |
 
 **文件位置**：[packages/core/src/api/index.ts](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/core/src/api/index.ts)
 
@@ -252,24 +256,24 @@ const routes = [
 
 **文件位置**：[packages/core/src/i18n/index.ts](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/core/src/i18n/index.ts)
 
----
+***
 
 ### 3.2 components 模块
 
 提供通用 UI 组件库，基于 TailwindCSS 封装：
 
-| 组件 | 说明 | 文件位置 |
-|-----|------|----------|
-| `LButton` | 按钮组件 | [LButton.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LButton.vue) |
-| `LInput` | 输入框组件 | [LInput.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LInput.vue) |
-| `LModal` | 模态框组件 | [LModal.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LModal.vue) |
-| `LSplitPane` | 分割面板组件 | [LSplitPane.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LSplitPane.vue) |
-| `LSelect` | 选择器组件 | [LSelect.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LSelect.vue) |
+| 组件             | 说明     | 文件位置                                                                                                                                                       |
+| -------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LButton`      | 按钮组件   | [LButton.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LButton.vue)           |
+| `LInput`       | 输入框组件  | [LInput.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LInput.vue)             |
+| `LModal`       | 模态框组件  | [LModal.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LModal.vue)             |
+| `LSplitPane`   | 分割面板组件 | [LSplitPane.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LSplitPane.vue)     |
+| `LSelect`      | 选择器组件  | [LSelect.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LSelect.vue)           |
 | `LContextMenu` | 右键菜单组件 | [LContextMenu.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LContextMenu.vue) |
-| `LTooltip` | 提示组件 | [LTooltip.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LTooltip.vue) |
-| `LIcon` | 图标组件 | [LIcon.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LIcon.vue) |
+| `LTooltip`     | 提示组件   | [LTooltip.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LTooltip.vue)         |
+| `LIcon`        | 图标组件   | [LIcon.vue](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/components/src/components/LIcon.vue)               |
 
----
+***
 
 ### 3.3 editor 模块
 
@@ -293,10 +297,11 @@ function dispose()
 **文件位置**：[packages/editor/src/composables/useMonaco.ts](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/editor/src/composables/useMonaco.ts)
 
 **组件**：
+
 - `SqlEditor.vue` - SQL编辑器主组件
 - `EditorTabs.vue` - 标签页管理组件
 
----
+***
 
 ### 3.4 connection 模块
 
@@ -325,26 +330,29 @@ export const DRIVER_CONFIGS: Record<DriverType, DriverConfig> = {
 **文件位置**：[packages/connection/src/config/database-types.ts](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/packages/connection/src/config/database-types.ts)
 
 **组件**：
+
 - `ConnectionPanel.vue` - 连接管理面板
 - `ConnectionTree.vue` - 连接树组件
 
----
+***
 
 ### 3.5 result 模块
 
 **组件**：
+
 - `ResultPanel.vue` - 结果展示面板
 - `LVirtualTable.vue` - 虚拟滚动表格组件
 - `HistoryPanel.vue` - 查询历史面板
 
----
+***
 
 ### 3.6 schema 模块
 
 **组件**：
+
 - `SchemaTree.vue` - 数据库对象树状浏览器
 
----
+***
 
 ## 4. 后端 Rust 模块
 
@@ -368,29 +376,29 @@ pub trait DbDriver: Send + Sync {
 
 #### 4.1.2 核心数据结构
 
-| 结构体 | 说明 |
-|-------|------|
-| `ConnectionConfig` | 连接配置 |
-| `ColumnInfo` | 列信息 |
-| `QueryResult` | 查询结果 |
-| `TableInfo` | 表信息 |
-| `ViewInfo` | 视图信息 |
+| 结构体                | 说明     |
+| ------------------ | ------ |
+| `ConnectionConfig` | 连接配置   |
+| `ColumnInfo`       | 列信息    |
+| `QueryResult`      | 查询结果   |
+| `TableInfo`        | 表信息    |
+| `ViewInfo`         | 视图信息   |
 | `DatabaseMetadata` | 数据库元数据 |
-| `AppError` | 错误类型 |
+| `AppError`         | 错误类型   |
 
 #### 4.1.3 错误码体系
 
-| 错误码 | 说明 |
-|-------|------|
-| `ERR_DB_CONNECTION` | 数据库连接错误 |
-| `ERR_CONN_TIMEOUT` | 连接超时 |
-| `ERR_DB_QUERY` | 查询执行错误 |
-| `ERR_QUERY_CANCELLED` | 查询被取消 |
-| `ERR_DRIVER_NOT_FOUND` | 驱动未找到 |
-| `ERR_SSH_TUNNEL` | SSH隧道错误 |
-| `ERR_NOT_FOUND` | 资源未找到 |
+| 错误码                    | 说明      |
+| ---------------------- | ------- |
+| `ERR_DB_CONNECTION`    | 数据库连接错误 |
+| `ERR_CONN_TIMEOUT`     | 连接超时    |
+| `ERR_DB_QUERY`         | 查询执行错误  |
+| `ERR_QUERY_CANCELLED`  | 查询被取消   |
+| `ERR_DRIVER_NOT_FOUND` | 驱动未找到   |
+| `ERR_SSH_TUNNEL`       | SSH隧道错误 |
+| `ERR_NOT_FOUND`        | 资源未找到   |
 
----
+***
 
 ### 4.2 core crate
 
@@ -403,6 +411,7 @@ pub struct ConnectionManager {
 ```
 
 **核心方法**：
+
 - `connect(config)` - 创建并管理新连接
 - `disconnect(id)` - 断开指定连接
 - `execute(id, sql)` - 执行SQL查询
@@ -412,7 +421,7 @@ pub struct ConnectionManager {
 
 **文件位置**：[apps/desktop/src-tauri/crates/core/src/lib.rs](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/apps/desktop/src-tauri/crates/core/src/lib.rs)
 
----
+***
 
 ### 4.3 数据库驱动
 
@@ -434,7 +443,7 @@ pub struct ConnectionManager {
 
 **文件位置**：[apps/desktop/src-tauri/crates/drivers/postgres-driver/src/lib.rs](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/apps/desktop/src-tauri/crates/drivers/postgres-driver/src/lib.rs)
 
----
+***
 
 ### 4.4 Tauri 命令注册
 
@@ -462,7 +471,7 @@ async fn test_connection(state: State<'_, ConnectionManager>, config: Connection
 
 **文件位置**：[apps/desktop/src-tauri/src/lib.rs](file:///C:/Users/HH/.trae-cn/worktrees/linkbase/feat-generate-code-wiki-doc-NxmTlG/apps/desktop/src-tauri/src/lib.rs)
 
----
+***
 
 ## 5. 项目依赖关系
 
@@ -521,7 +530,7 @@ sqlite_driver
 └── db_common         # 驱动抽象层
 ```
 
----
+***
 
 ## 6. 项目运行方式
 
@@ -564,14 +573,14 @@ pnpm tauri build    # 构建Tauri应用
 
 ### 6.3 关键配置文件
 
-| 文件 | 说明 |
-|------|------|
-| `apps/desktop/tauri.conf.json` | Tauri配置（窗口大小、权限等） |
-| `apps/desktop/src-tauri/Cargo.toml` | Rust依赖配置 |
-| `packages/core/tsconfig.json` | TypeScript配置 |
-| `pnpm-workspace.yaml` | Monorepo工作区配置 |
+| 文件                                  | 说明                |
+| ----------------------------------- | ----------------- |
+| `apps/desktop/tauri.conf.json`      | Tauri配置（窗口大小、权限等） |
+| `apps/desktop/src-tauri/Cargo.toml` | Rust依赖配置          |
+| `packages/core/tsconfig.json`       | TypeScript配置      |
+| `pnpm-workspace.yaml`               | Monorepo工作区配置     |
 
----
+***
 
 ## 7. 核心工作流程
 
@@ -629,7 +638,7 @@ ResultStore.setResults()
 UI渲染虚拟表格
 ```
 
----
+***
 
 ## 8. 扩展能力
 
@@ -643,7 +652,7 @@ UI渲染虚拟表格
 
 遵循 monorepo 模式，在 `packages/` 下创建新目录，配置 `package.json`，并在 `packages/core/src/index.ts` 中导出。
 
----
+***
 
 ## 9. 代码规范
 
@@ -662,7 +671,7 @@ UI渲染虚拟表格
 - 错误处理使用 `Result` 类型
 - 驱动实现必须实现 `DbDriver` trait
 
----
+***
 
 ## 10. 参考文档
 
@@ -672,3 +681,4 @@ UI渲染虚拟表格
 - [sqlx 文档](https://docs.rs/sqlx/)
 - [rusqlite 文档](https://docs.rs/rusqlite/)
 - [Monaco Editor API](https://microsoft.github.io/monaco-editor/api/)
+

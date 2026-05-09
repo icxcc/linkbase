@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use db_common::{
-    AppError, ColumnInfo, ConnectionConfig, DatabaseMetadata, DbDriver, IndexInfo, QueryResult,
-    RoutineInfo, SchemaInfo, SequenceInfo, TableInfo, TestResult, ViewInfo,
+    AppError, ColumnInfo, ConnectionConfig, DatabaseInfo, DatabaseMetadata, DbDriver, EventInfo,
+    IndexInfo, QueryResult, RoleInfo, RoutineInfo, SchemaInfo, SequenceInfo, TableInfo,
+    TablespaceInfo, TestResult, TriggerInfo, ViewInfo,
 };
 use sqlx::{Column, Row, TypeInfo};
 use std::sync::Mutex;
@@ -10,6 +11,7 @@ use std::time::Instant;
 pub struct PostgresDriver {
     pool: Mutex<Option<sqlx::PgPool>>,
     backend_pid: Mutex<Option<i32>>,
+    connection_url: Mutex<Option<String>>,
 }
 
 impl PostgresDriver {
@@ -17,6 +19,7 @@ impl PostgresDriver {
         Self {
             pool: Mutex::new(None),
             backend_pid: Mutex::new(None),
+            connection_url: Mutex::new(None),
         }
     }
 
@@ -78,6 +81,11 @@ impl DbDriver for PostgresDriver {
         {
             let mut guard = self.backend_pid.lock().map_err(|_| Self::mutex_poisoned())?;
             *guard = Some(backend_pid);
+        }
+
+        {
+            let mut guard = self.connection_url.lock().map_err(|_| Self::mutex_poisoned())?;
+            *guard = Some(url);
         }
 
         Ok(())
@@ -176,43 +184,84 @@ impl DbDriver for PostgresDriver {
             guard.as_ref().ok_or_else(Self::not_connected)?.clone()
         };
 
-        let schema_rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT schema_name FROM information_schema.schemata \
-             WHERE schema_name NOT IN ('pg_catalog', 'information_schema') \
-             ORDER BY schema_name",
-        )
-        .fetch_all(&pool)
-        .await
-        .map_err(Self::query_err)?;
+        let base_url = {
+            let url_guard = self.connection_url.lock().map_err(|_| Self::mutex_poisoned())?;
+            url_guard.as_ref().ok_or_else(Self::not_connected)?.clone()
+        };
 
-        let mut schemas = Vec::new();
+        let db_names = Self::fetch_accessible_databases(&pool).await?;
 
-        for (schema_name,) in schema_rows {
-            let tables = Self::fetch_tables(&pool, &schema_name).await?;
-            let views = Self::fetch_views(&pool, &schema_name).await?;
-            let materialized_views = Self::fetch_materialized_views(&pool, &schema_name).await?;
-            let functions = Self::fetch_routines(&pool, &schema_name, "FUNCTION").await?;
-            let procedures = Self::fetch_routines(&pool, &schema_name, "PROCEDURE").await?;
-            let sequences = Self::fetch_sequences(&pool, &schema_name).await?;
-            let indexes = Self::fetch_indexes(&pool, &schema_name).await?;
+        let roles = Self::fetch_roles(&pool).await?;
+        let tablespaces = Self::fetch_tablespaces(&pool).await?;
 
-            schemas.push(SchemaInfo {
-                name: schema_name,
-                tables,
-                views,
-                materialized_views,
-                functions,
-                procedures,
-                sequences,
-                indexes,
+        let mut databases = Vec::new();
+
+        for db_name in db_names {
+            let mut db_schemas = Vec::new();
+
+            let db_pool_result = Self::connect_to_database(&base_url, &db_name).await;
+            
+            if let Ok(db_pool) = db_pool_result {
+                let schema_rows: Vec<(String,)> = sqlx::query_as(
+                    "SELECT schema_name FROM information_schema.schemata \
+                     WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
+                     ORDER BY schema_name",
+                )
+                .fetch_all(&db_pool)
+                .await
+                .map_err(Self::query_err)?;
+
+                for (schema_name,) in schema_rows {
+                    let tables = Self::fetch_tables(&db_pool, &schema_name).await?;
+                    let views = Self::fetch_views(&db_pool, &schema_name).await?;
+                    let materialized_views = Self::fetch_materialized_views(&db_pool, &schema_name).await?;
+                    let functions = Self::fetch_routines(&db_pool, &schema_name, "FUNCTION").await?;
+                    let procedures = Self::fetch_routines(&db_pool, &schema_name, "PROCEDURE").await?;
+                    let sequences = Self::fetch_sequences(&db_pool, &schema_name).await?;
+                    let indexes = Self::fetch_indexes(&db_pool, &schema_name).await?;
+                    let triggers = Self::fetch_triggers(&db_pool, &schema_name).await?;
+                    let events = Self::fetch_events(&db_pool, &schema_name).await?;
+
+                    db_schemas.push(SchemaInfo {
+                        name: schema_name,
+                        tables,
+                        views,
+                        materialized_views,
+                        functions,
+                        procedures,
+                        sequences,
+                        indexes,
+                        triggers,
+                        events,
+                    });
+                }
+
+                db_pool.close().await;
+            }
+
+            databases.push(DatabaseInfo {
+                name: db_name,
+                tables: vec![],
+                views: vec![],
+                functions: vec![],
+                procedures: vec![],
+                users: vec![],
+                triggers: vec![],
+                events: vec![],
+                roles: vec![],
+                tablespaces: vec![],
+                schemas: db_schemas,
             });
         }
 
         Ok(DatabaseMetadata {
             driver_type: "postgres".to_string(),
-            databases: vec![],
-            schemas,
+            databases,
+            schemas: vec![],
             tables: vec![],
+            roles,
+            tablespaces,
+            users: vec![],
         })
     }
 
@@ -445,5 +494,107 @@ impl PostgresDriver {
                 primary: false,
             })
             .collect())
+    }
+
+    async fn fetch_triggers(
+        pool: &sqlx::PgPool,
+        schema: &str,
+    ) -> Result<Vec<TriggerInfo>, AppError> {
+        let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+            "SELECT trigger_name, event_object_table, action_timing, event_manipulation \
+             FROM information_schema.triggers \
+             WHERE trigger_schema = $1 ORDER BY trigger_name",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(name, table_name, timing, event)| TriggerInfo {
+                name,
+                table_name: Some(table_name),
+                timing: Some(timing),
+                event: Some(event),
+                definition: None,
+            })
+            .collect())
+    }
+
+    async fn fetch_events(_pool: &sqlx::PgPool, _schema: &str) -> Result<Vec<EventInfo>, AppError> {
+        Ok(vec![])
+    }
+
+    async fn fetch_roles(pool: &sqlx::PgPool) -> Result<Vec<RoleInfo>, AppError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT rolname FROM pg_roles ORDER BY rolname",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(name,)| RoleInfo {
+                name,
+                description: None,
+            })
+            .collect())
+    }
+
+    async fn fetch_tablespaces(pool: &sqlx::PgPool) -> Result<Vec<TablespaceInfo>, AppError> {
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT spcname, pg_tablespace_location(oid) FROM pg_tablespace ORDER BY spcname",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(name, location)| TablespaceInfo {
+                name,
+                location,
+            })
+            .collect())
+    }
+
+    async fn fetch_accessible_databases(pool: &sqlx::PgPool) -> Result<Vec<String>, AppError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT datname FROM pg_database \
+             WHERE datistemplate = false \
+             AND has_database_privilege(datname, 'CONNECT') \
+             ORDER BY datname",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows.into_iter().map(|(name,)| name).collect())
+    }
+
+    async fn connect_to_database(base_url: &str, db_name: &str) -> Result<sqlx::PgPool, AppError> {
+        let db_url = Self::replace_database_in_url(base_url, db_name);
+        let pool = sqlx::PgPool::connect(&db_url)
+            .await
+            .map_err(Self::conn_err)?;
+        Ok(pool)
+    }
+
+    fn replace_database_in_url(url: &str, db_name: &str) -> String {
+        let mut result = url.to_string();
+        
+        if let Some(pos) = result.rfind('/') {
+            let before_db = &result[..pos + 1];
+            let after_db = if let Some(q_pos) = result[pos + 1..].find('?') {
+                &result[pos + 1 + q_pos..]
+            } else {
+                ""
+            };
+            result = format!("{}{}{}", before_db, db_name, after_db);
+        }
+        
+        result
     }
 }

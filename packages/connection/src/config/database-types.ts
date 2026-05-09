@@ -27,9 +27,10 @@ export interface TreeNodeCategory {
 }
 
 export interface TreeNodeTemplate {
-  rootContainerType: 'databases' | 'schemas' | 'flat'
+  rootContainerType: 'databases' | 'schemas' | 'flat' | 'databases_with_schemas'
   categories: TreeNodeCategory[]
   rootContainerLabel: string
+  topLevelCategories?: TreeNodeCategory[]
 }
 
 export const DRIVER_CONFIGS: Record<DriverType, DriverConfig> = {
@@ -123,12 +124,16 @@ export const TREE_NODE_TEMPLATES: Record<DriverType, TreeNodeTemplate> = {
       { key: 'views', label: 'Views', icon: 'eye' },
       { key: 'functions', label: 'Functions', icon: 'function' },
       { key: 'procedures', label: 'Stored Procedures', icon: 'procedure' },
+      { key: 'triggers', label: 'Triggers', icon: 'trigger' },
+      { key: 'events', label: 'Events', icon: 'event' },
+    ],
+    topLevelCategories: [
       { key: 'users', label: 'Users', icon: 'user' },
     ],
   },
   postgres: {
-    rootContainerType: 'schemas',
-    rootContainerLabel: 'Schemas',
+    rootContainerType: 'databases_with_schemas',
+    rootContainerLabel: 'Databases',
     categories: [
       { key: 'tables', label: 'Tables', icon: 'table' },
       { key: 'views', label: 'Views', icon: 'eye' },
@@ -137,6 +142,12 @@ export const TREE_NODE_TEMPLATES: Record<DriverType, TreeNodeTemplate> = {
       { key: 'procedures', label: 'Procedures', icon: 'procedure' },
       { key: 'sequences', label: 'Sequences', icon: 'sequence' },
       { key: 'indexes', label: 'Indexes', icon: 'index' },
+      { key: 'triggers', label: 'Triggers', icon: 'trigger' },
+      { key: 'events', label: 'Events', icon: 'event' },
+    ],
+    topLevelCategories: [
+      { key: 'roles', label: 'Roles', icon: 'role' },
+      { key: 'tablespaces', label: 'Tablespaces', icon: 'tablespace' },
     ],
   },
   oracle: {

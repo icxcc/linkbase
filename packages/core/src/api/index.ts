@@ -124,6 +124,31 @@ export interface UserInfo {
   host?: string
 }
 
+export interface TriggerInfo {
+  name: string
+  table_name?: string
+  timing?: string
+  event?: string
+  definition?: string
+}
+
+export interface EventInfo {
+  name: string
+  schedule?: string
+  enabled?: boolean
+  definition?: string
+}
+
+export interface RoleInfo {
+  name: string
+  description?: string
+}
+
+export interface TablespaceInfo {
+  name: string
+  location?: string
+}
+
 export interface DatabaseInfo {
   name: string
   tables?: TableInfo[]
@@ -131,6 +156,11 @@ export interface DatabaseInfo {
   functions?: RoutineInfo[]
   procedures?: RoutineInfo[]
   users?: UserInfo[]
+  triggers?: TriggerInfo[]
+  events?: EventInfo[]
+  roles?: RoleInfo[]
+  tablespaces?: TablespaceInfo[]
+  schemas?: SchemaInfo[]
 }
 
 export interface SchemaInfo {
@@ -142,6 +172,8 @@ export interface SchemaInfo {
   procedures?: RoutineInfo[]
   sequences?: SequenceInfo[]
   indexes?: IndexInfo[]
+  triggers?: TriggerInfo[]
+  events?: EventInfo[]
 }
 
 export interface DatabaseMetadata {
@@ -149,6 +181,9 @@ export interface DatabaseMetadata {
   databases?: DatabaseInfo[]
   schemas?: SchemaInfo[]
   tables?: TableInfo[]
+  roles?: RoleInfo[]
+  tablespaces?: TablespaceInfo[]
+  users?: UserInfo[]
 }
 
 export async function getMetadata(id: ConnectionId): Promise<DatabaseMetadata> {

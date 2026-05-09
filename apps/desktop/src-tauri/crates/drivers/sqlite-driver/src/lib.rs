@@ -171,6 +171,9 @@ impl DbDriver for SqliteDriver {
             databases: vec![],
             schemas: vec![],
             tables: metadata_tables,
+            roles: vec![],
+            tablespaces: vec![],
+            users: vec![],
         })
     }
 

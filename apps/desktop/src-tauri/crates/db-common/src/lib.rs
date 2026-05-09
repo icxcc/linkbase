@@ -168,6 +168,44 @@ pub struct UserInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerInfo {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventInfo {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleInfo {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TablespaceInfo {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseInfo {
     pub name: String,
     #[serde(default)]
@@ -180,6 +218,16 @@ pub struct DatabaseInfo {
     pub procedures: Vec<RoutineInfo>,
     #[serde(default)]
     pub users: Vec<UserInfo>,
+    #[serde(default)]
+    pub triggers: Vec<TriggerInfo>,
+    #[serde(default)]
+    pub events: Vec<EventInfo>,
+    #[serde(default)]
+    pub roles: Vec<RoleInfo>,
+    #[serde(default)]
+    pub tablespaces: Vec<TablespaceInfo>,
+    #[serde(default)]
+    pub schemas: Vec<SchemaInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,6 +247,10 @@ pub struct SchemaInfo {
     pub sequences: Vec<SequenceInfo>,
     #[serde(default)]
     pub indexes: Vec<IndexInfo>,
+    #[serde(default)]
+    pub triggers: Vec<TriggerInfo>,
+    #[serde(default)]
+    pub events: Vec<EventInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +262,12 @@ pub struct DatabaseMetadata {
     pub schemas: Vec<SchemaInfo>,
     #[serde(default)]
     pub tables: Vec<TableInfo>,
+    #[serde(default)]
+    pub roles: Vec<RoleInfo>,
+    #[serde(default)]
+    pub tablespaces: Vec<TablespaceInfo>,
+    #[serde(default)]
+    pub users: Vec<UserInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

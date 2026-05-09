@@ -49,6 +49,9 @@ export default {
     browse: '浏览',
     testSuccess: '连接成功! 服务器版本: {version}, 延迟: {latency}ms',
     testFail: '连接失败: {message}',
+    editConnection: '编辑连接',
+    folder: '分组',
+    noFolder: '无分组',
   },
   editor: {
     notConnected: '未连接',
