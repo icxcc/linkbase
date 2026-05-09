@@ -38,7 +38,7 @@
     </div>
 
     <LContextMenu
-      v-if="contextMenu.show"
+      :show="contextMenu.show"
       :x="contextMenu.x"
       :y="contextMenu.y"
       :items="contextMenu.items"
@@ -49,7 +49,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
+import { ref, h } from 'vue'
 import { NTree, NInput, NButton, NIcon, NTag, type TreeOption } from 'naive-ui'
 import {
   ServerOutline, FolderOutline, FolderOpenOutline, GridOutline, EyeOutline,
@@ -77,6 +77,7 @@ const searchText = ref('')
 const expandedKeys = ref<string[]>([])
 const selectedKeys = ref<string[]>([])
 const connectionMetadata = ref<Map<string, DatabaseMetadata>>(new Map())
+const treeData = ref<TreeOptionWithMeta[]>([])
 
 const contextMenu = ref<{
   show: boolean
@@ -92,6 +93,33 @@ const contextMenu = ref<{
   items: [],
   contextNodeKey: undefined,
   contextNodeData: undefined,
+})
+
+function refreshTreeData() {
+  const data: TreeOptionWithMeta[] = []
+  for (const group of connectionStore.connectionsByFolder) {
+    if (group.folder) {
+      const folderNode: TreeOptionWithMeta = {
+        key: `folder/${group.folder.id}`,
+        label: group.folder.name,
+        children: group.connections.map((c: Connection) => buildConnectionNode(c)),
+        prefix: () => h(NIcon, null, { default: () => h(FolderOutline) }),
+        suffix: () => h(NTag, { size: 'tiny', round: true }, { default: () => String(group.connections.length) }),
+      }
+      setNodeData(folderNode, { nodeType: 'folder' })
+      data.push(folderNode)
+    } else {
+      for (const c of group.connections) {
+        data.push(buildConnectionNode(c))
+      }
+    }
+  }
+  treeData.value = data
+}
+
+refreshTreeData()
+connectionStore.$subscribe(() => {
+  refreshTreeData()
 })
 
 type TreeNodeType = 'folder' | 'connection' | 'rootContainer' | 'category' | 'table' | 'view' | 'materializedView' | 'function' | 'procedure' | 'sequence' | 'index' | 'user' | 'column'
@@ -314,30 +342,6 @@ function buildCategoryChildren(
   return children
 }
 
-const treeData = computed<TreeOptionWithMeta[]>(() => {
-  const data: TreeOptionWithMeta[] = []
-
-  for (const group of connectionStore.connectionsByFolder) {
-    if (group.folder) {
-      const folderNode: TreeOptionWithMeta = {
-        key: `folder/${group.folder.id}`,
-        label: group.folder.name,
-        children: group.connections.map((c: Connection) => buildConnectionNode(c)),
-        prefix: () => h(NIcon, null, { default: () => h(FolderOutline) }),
-        suffix: () => h(NTag, { size: 'tiny', round: true }, { default: () => String(group.connections.length) }),
-      }
-      setNodeData(folderNode, { nodeType: 'folder' })
-      data.push(folderNode)
-    } else {
-      for (const c of group.connections) {
-        data.push(buildConnectionNode(c))
-      }
-    }
-  }
-
-  return data
-})
-
 function buildConnectionNode(c: Connection): TreeOptionWithMeta {
   const connected = c.status === 'connected'
 
@@ -390,15 +394,21 @@ async function loadConnectionChildren(connId: string): Promise<void> {
         const dbKey = `conn/${connId}/db/${db.name}`
         const dbChildren: TreeOptionWithMeta[] = []
         for (const category of template.categories) {
-          const catChildren = buildCategoryChildren(category, db.name, undefined, connId, db, {} as SchemaInfo, [], dbKey)
-          if (catChildren.length > 0) {
+          const hasItems = hasCategoryItems(category.key, db, {} as SchemaInfo)
+          if (hasItems) {
             const catNode: TreeOptionWithMeta = {
               key: `${dbKey}/cat/${category.key}`,
               label: category.label,
-              children: catChildren,
+              children: [],
               prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
               isLeaf: false,
             }
+            setNodeData(catNode, {
+              nodeType: 'category',
+              connectionId: connId,
+              databaseName: db.name,
+              categoryKey: category.key,
+            })
             dbChildren.push(catNode)
           }
         }
@@ -417,15 +427,21 @@ async function loadConnectionChildren(connId: string): Promise<void> {
         const schKey = `conn/${connId}/schema/${schema.name}`
         const schChildren: TreeOptionWithMeta[] = []
         for (const category of template.categories) {
-          const catChildren = buildCategoryChildren(category, undefined, schema.name, connId, {} as DatabaseInfo, schema, [], schKey)
-          if (catChildren.length > 0) {
+          const hasItems = hasCategoryItems(category.key, {} as DatabaseInfo, schema)
+          if (hasItems) {
             const catNode: TreeOptionWithMeta = {
               key: `${schKey}/cat/${category.key}`,
               label: category.label,
-              children: catChildren,
+              children: [],
               prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
               isLeaf: false,
             }
+            setNodeData(catNode, {
+              nodeType: 'category',
+              connectionId: connId,
+              schemaName: schema.name,
+              categoryKey: category.key,
+            })
             schChildren.push(catNode)
           }
         }
@@ -461,6 +477,29 @@ async function loadConnectionChildren(connId: string): Promise<void> {
     }
   } catch (err) {
     console.error('Failed to load metadata:', err)
+  }
+}
+
+function hasCategoryItems(categoryKey: string, db: DatabaseInfo, schema: SchemaInfo): boolean {
+  switch (categoryKey) {
+    case 'tables':
+      return (db.tables && db.tables.length > 0) || (schema.tables && schema.tables.length > 0)
+    case 'views':
+      return (db.views && db.views.length > 0) || (schema.views && schema.views.length > 0)
+    case 'materialized_views':
+      return schema.materialized_views && schema.materialized_views.length > 0
+    case 'functions':
+      return (db.functions && db.functions.length > 0) || (schema.functions && schema.functions.length > 0)
+    case 'procedures':
+      return (db.procedures && db.procedures.length > 0) || (schema.procedures && schema.procedures.length > 0)
+    case 'sequences':
+      return schema.sequences && schema.sequences.length > 0
+    case 'indexes':
+      return schema.indexes && schema.indexes.length > 0
+    case 'users':
+      return db.users && db.users.length > 0
+    default:
+      return false
   }
 }
 
@@ -578,12 +617,55 @@ function onExpandedKeysChange(keys: string[]) {
     if (key.startsWith('conn/')) {
       const parts = key.replace('conn/', '').split('/')
       const connId = parts[0]
-      const c = connectionStore.connections.find((x) => x.id === connId)
-      if (c && c.status === 'connected') {
-        loadConnectionChildren(connId)
+      
+      if (parts.length === 1) {
+        const c = connectionStore.connections.find((x) => x.id === connId)
+        if (c && c.status === 'connected') {
+          loadConnectionChildren(connId)
+        }
+      } else if (parts.length === 4 && parts[2] === 'cat') {
+        loadCategoryChildren(connId, parts[1], parts[3])
       }
     }
   }
+}
+
+async function loadCategoryChildren(connId: string, containerName: string, categoryKey: string) {
+  const meta = connectionMetadata.value.get(connId)
+  if (!meta) return
+
+  const c = connectionStore.connections.find((x) => x.id === connId)
+  if (!c) return
+
+  const template = TREE_NODE_TEMPLATES[c.driver_type as DriverType]
+  if (!template) return
+
+  const category = template.categories.find((cat) => cat.key === categoryKey)
+  if (!category) return
+
+  const keyPrefix = `conn/${connId}/${template.rootContainerType === 'databases' ? 'db' : 'schema'}/${containerName}/cat/${categoryKey}`
+  
+  let db: DatabaseInfo = {} as DatabaseInfo
+  let schema: SchemaInfo = {} as SchemaInfo
+  
+  if (template.rootContainerType === 'databases') {
+    db = meta.databases?.find((d) => d.name === containerName) || ({} as DatabaseInfo)
+  } else {
+    schema = meta.schemas?.find((s) => s.name === containerName) || ({} as SchemaInfo)
+  }
+
+  const catChildren = buildCategoryChildren(
+    category,
+    template.rootContainerType === 'databases' ? containerName : undefined,
+    template.rootContainerType === 'schemas' ? containerName : undefined,
+    connId,
+    db,
+    schema,
+    [],
+    keyPrefix
+  )
+
+  updateTreeNode(keyPrefix, { children: catChildren })
 }
 
 function onSelectedKeysChange(keys: string[]) {

@@ -2,36 +2,47 @@
 import { ref } from 'vue'
 
 interface MenuItem {
+  key: string
   label: string
-  action?: () => void
+  icon?: string
   children?: MenuItem[]
   divider?: boolean
 }
 
-defineProps<{ items: MenuItem[] }>()
-const show = ref(false)
-const pos = ref({ x: 0, y: 0 })
+defineProps<{ 
+  items: MenuItem[] 
+  show: boolean
+  x: number
+  y: number
+}>()
+
+const emit = defineEmits<{ 
+  close: []
+  select: [key: string]
+}>()
+
 const subMenuOpen = ref<string | null>(null)
 
-function open(e: MouseEvent) {
-  e.preventDefault()
-  show.value = true
-  pos.value = { x: e.clientX, y: e.clientY }
+function handleSelect(key: string) {
+  emit('select', key)
 }
-function close() { show.value = false; subMenuOpen.value = null }
-defineExpose({ open, close })
+
+function close() { 
+  subMenuOpen.value = null
+  emit('close')
+}
 </script>
 <template>
   <Teleport to="body">
     <div v-if="show" class="l-context-overlay" @click="close" @contextmenu.prevent="close">
-      <div class="l-context-menu" :style="{ left: pos.x + 'px', top: pos.y + 'px' }">
-        <template v-for="item in items" :key="item.label">
+      <div class="l-context-menu" :style="{ left: x + 'px', top: y + 'px' }">
+        <template v-for="item in items" :key="item.key || item.label">
           <div v-if="item.divider" class="l-context-divider" />
-          <div v-else class="l-context-item" @click="item.action?.(); close()" @mouseenter="subMenuOpen = item.children ? item.label : null" @mouseleave="subMenuOpen = null">
+          <div v-else class="l-context-item" @click="handleSelect(item.key); close()" @mouseenter="subMenuOpen = item.children ? item.key || item.label : null" @mouseleave="subMenuOpen = null">
             {{ item.label }}
             <span v-if="item.children?.length">▸</span>
-            <div v-if="item.children?.length && subMenuOpen === item.label" class="l-context-sub">
-              <div v-for="child in item.children" :key="child.label" class="l-context-item" @click.stop="child.action?.(); close()">{{ child.label }}</div>
+            <div v-if="item.children?.length && subMenuOpen === (item.key || item.label)" class="l-context-sub">
+              <div v-for="child in item.children" :key="child.key || child.label" class="l-context-item" @click.stop="handleSelect(child.key); close()">{{ child.label }}</div>
             </div>
           </div>
         </template>
