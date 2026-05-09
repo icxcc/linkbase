@@ -76,7 +76,7 @@ export const useConnectionStore = defineStore('connection', () => {
       connections.value = storedConns.map((c) => ({
         ...c,
         folderId: c.folder_id,
-        status: 'idle' as ConnectionStatus,
+        status: 'idle',
       }))
       folders.value = storedFolders
     } catch {}

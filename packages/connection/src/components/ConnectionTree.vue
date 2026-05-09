@@ -132,6 +132,7 @@ interface TreeNodeData {
   schemaName?: string
   tableName?: string
   columnName?: string
+  categoryKey?: string
 }
 
 const NODE_DATA_KEY = '__treeNodeData__'
@@ -483,21 +484,21 @@ async function loadConnectionChildren(connId: string): Promise<void> {
 function hasCategoryItems(categoryKey: string, db: DatabaseInfo, schema: SchemaInfo): boolean {
   switch (categoryKey) {
     case 'tables':
-      return (db.tables && db.tables.length > 0) || (schema.tables && schema.tables.length > 0)
+      return !!(db.tables?.length) || !!(schema.tables?.length)
     case 'views':
-      return (db.views && db.views.length > 0) || (schema.views && schema.views.length > 0)
+      return !!(db.views?.length) || !!(schema.views?.length)
     case 'materialized_views':
-      return schema.materialized_views && schema.materialized_views.length > 0
+      return !!(schema.materialized_views?.length)
     case 'functions':
-      return (db.functions && db.functions.length > 0) || (schema.functions && schema.functions.length > 0)
+      return !!(db.functions?.length) || !!(schema.functions?.length)
     case 'procedures':
-      return (db.procedures && db.procedures.length > 0) || (schema.procedures && schema.procedures.length > 0)
+      return !!(db.procedures?.length) || !!(schema.procedures?.length)
     case 'sequences':
-      return schema.sequences && schema.sequences.length > 0
+      return !!(schema.sequences?.length)
     case 'indexes':
-      return schema.indexes && schema.indexes.length > 0
+      return !!(schema.indexes?.length)
     case 'users':
-      return db.users && db.users.length > 0
+      return !!(db.users?.length)
     default:
       return false
   }
