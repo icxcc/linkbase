@@ -6,6 +6,9 @@ use sqlite_driver::SqliteDriver;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+pub mod connection_storage;
+pub use connection_storage::{load_connections, load_folders, save_connections, save_folders, StoredConnection, StoredFolder};
+
 pub struct ConnectionManager {
     connections: DashMap<String, Arc<Mutex<Box<dyn DbDriver>>>>,
 }

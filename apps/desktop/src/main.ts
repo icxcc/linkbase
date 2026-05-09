@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import router from '@linkbase/core/router'
 import { useAppStore } from '@linkbase/core/stores/app'
+import { useConnectionStore } from '@linkbase/core/stores/connection'
 import { i18n } from '@linkbase/core/i18n'
 import '@linkbase/core/styles/theme.css'
 import './styles/main.css'
@@ -18,3 +19,6 @@ app.mount('#app')
 
 const appStore = useAppStore()
 appStore.initialize()
+
+const connectionStore = useConnectionStore()
+connectionStore.loadFromBackend()

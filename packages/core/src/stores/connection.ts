@@ -1,5 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { 
+  loadConnections as loadConnectionsApi, 
+  saveConnections as saveConnectionsApi, 
+  loadFolders as loadFoldersApi, 
+  saveFolders as saveFoldersApi,
+  type StoredConnection,
+  type StoredFolder
+} from '@linkbase/core/api'
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'
 
@@ -16,6 +24,7 @@ export interface Connection {
   options?: Record<string, unknown>
   status: ConnectionStatus
   folderId?: string
+  password?: string
 }
 
 export interface ConnectionFolder {
@@ -42,6 +51,11 @@ function saveOrder(order: StoredOrder) {
   localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(order))
 }
 
+function cleanupLocalStorage() {
+  localStorage.removeItem('linkbase_connections')
+  localStorage.removeItem('linkbase_folders')
+}
+
 export const useConnectionStore = defineStore('connection', () => {
   const connections = ref<Connection[]>([])
   const currentConnectionId = ref<string | null>(null)
@@ -49,6 +63,51 @@ export const useConnectionStore = defineStore('connection', () => {
   const autoReconnect = ref(true)
   const connectionOrder = ref<string[]>(loadOrder().connectionOrder)
   const folderOrder = ref<string[]>(loadOrder().folderOrder)
+
+  async function loadFromBackend() {
+    cleanupLocalStorage()
+    
+    try {
+      const [storedConns, storedFolders] = await Promise.all([
+        loadConnectionsApi().catch(() => []),
+        loadFoldersApi().catch(() => [])
+      ])
+
+      connections.value = storedConns.map((c) => ({
+        ...c,
+        folderId: c.folder_id,
+        status: 'idle' as ConnectionStatus,
+      }))
+      folders.value = storedFolders
+    } catch {}
+  }
+
+  async function saveToBackend(conns: Connection[], folderList: ConnectionFolder[]) {
+    const storedConns: StoredConnection[] = conns.map((c) => ({
+      id: c.id,
+      name: c.name,
+      host: c.host,
+      port: c.port,
+      user: c.user,
+      database: c.database,
+      username: c.username,
+      driver_type: c.driver_type,
+      connection_string: c.connection_string,
+      options: c.options,
+      folder_id: c.folderId,
+      password: c.password,
+    }))
+
+    const storedFolders: StoredFolder[] = folderList.map((f) => ({
+      id: f.id,
+      name: f.name,
+    }))
+
+    await Promise.all([
+      saveConnectionsApi(storedConns).catch(() => {}),
+      saveFoldersApi(storedFolders).catch(() => {}),
+    ])
+  }
 
   function persistOrder() {
     saveOrder({
@@ -122,6 +181,7 @@ export const useConnectionStore = defineStore('connection', () => {
     connections.value.push({ ...conn, status: 'idle' })
     connectionOrder.value.push(conn.id)
     persistOrder()
+    saveToBackend(connections.value, folders.value)
   }
 
   function removeConnection(id: string) {
@@ -131,6 +191,7 @@ export const useConnectionStore = defineStore('connection', () => {
       currentConnectionId.value = null
     }
     persistOrder()
+    saveToBackend(connections.value, folders.value)
   }
 
   function setCurrentConnection(id: string | null) {
@@ -145,6 +206,7 @@ export const useConnectionStore = defineStore('connection', () => {
   function updateConnection(id: string, updates: Partial<Connection>) {
     const conn = connections.value.find((c) => c.id === id)
     if (conn) Object.assign(conn, updates)
+    saveToBackend(connections.value, folders.value)
   }
 
   function addFolder(name: string): ConnectionFolder {
@@ -152,6 +214,7 @@ export const useConnectionStore = defineStore('connection', () => {
     folders.value.push(folder)
     folderOrder.value.push(folder.id)
     persistOrder()
+    saveToBackend(connections.value, folders.value)
     return folder
   }
 
@@ -160,16 +223,19 @@ export const useConnectionStore = defineStore('connection', () => {
     folderOrder.value = folderOrder.value.filter((fid) => fid !== id)
     connections.value.filter((c) => c.folderId === id).forEach((c) => (c.folderId = undefined))
     persistOrder()
+    saveToBackend(connections.value, folders.value)
   }
 
   function renameFolder(id: string, name: string) {
     const folder = folders.value.find((f) => f.id === id)
     if (folder) folder.name = name
+    saveToBackend(connections.value, folders.value)
   }
 
   function moveToFolder(connectionId: string, folderId: string | undefined) {
     const conn = connections.value.find((c) => c.id === connectionId)
     if (conn) conn.folderId = folderId
+    saveToBackend(connections.value, folders.value)
   }
 
   function moveConnection(targetId: string, targetFolderId: string | undefined, index: number) {
@@ -200,6 +266,7 @@ export const useConnectionStore = defineStore('connection', () => {
     connectionOrder,
     folderOrder,
     connectionsByFolder,
+    loadFromBackend,
     addConnection,
     removeConnection,
     setCurrentConnection,

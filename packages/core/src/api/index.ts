@@ -159,4 +159,40 @@ export async function getEnhancedMetadata(id: ConnectionId): Promise<DatabaseMet
   return invoke<DatabaseMetadata>('get_enhanced_metadata', { id })
 }
 
+export interface StoredConnection {
+  id: string
+  name: string
+  host?: string
+  port?: number
+  user?: string
+  database?: string
+  username?: string
+  driver_type: string
+  connection_string?: string
+  options?: Record<string, unknown>
+  folder_id?: string
+  password?: string
+}
+
+export interface StoredFolder {
+  id: string
+  name: string
+}
+
+export async function saveConnections(connections: StoredConnection[]): Promise<void> {
+  return invoke('save_connections_cmd', { connections })
+}
+
+export async function loadConnections(): Promise<StoredConnection[]> {
+  return invoke<StoredConnection[]>('load_connections_cmd')
+}
+
+export async function saveFolders(folders: StoredFolder[]): Promise<void> {
+  return invoke('save_folders_cmd', { folders })
+}
+
+export async function loadFolders(): Promise<StoredFolder[]> {
+  return invoke<StoredFolder[]>('load_folders_cmd')
+}
+
 export { extractErrorMessage }

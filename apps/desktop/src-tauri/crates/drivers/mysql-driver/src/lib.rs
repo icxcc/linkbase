@@ -98,14 +98,6 @@ impl MySqlDriver {
 #[async_trait]
 impl DbDriver for MySqlDriver {
     async fn connect(&mut self, config: &ConnectionConfig) -> Result<(), AppError> {
-        if let Some(port) = config.port {
-            if port > 65535 {
-                return Err(AppError::connection_err(
-                    format!("无效的端口号: {}", port),
-                    Some("端口号必须在 1-65535 范围内"),
-                ));
-            }
-        }
 
         let url = config.build_connection_string();
         if url.is_empty() {
@@ -321,14 +313,6 @@ impl DbDriver for MySqlDriver {
     }
 
     async fn test_connection(&mut self, config: &ConnectionConfig) -> Result<TestResult, AppError> {
-        if let Some(port) = config.port {
-            if port > 65535 {
-                return Err(AppError::connection_err(
-                    format!("无效的端口号: {}", port),
-                    Some("端口号必须在 1-65535 范围内"),
-                ));
-            }
-        }
 
         let url = config.build_connection_string();
         let start = Instant::now();
