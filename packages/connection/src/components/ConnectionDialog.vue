@@ -16,6 +16,15 @@
 
       <div class="conn-dialog-right">
         <n-form ref="formRef" :model="formModel" label-placement="top" size="small">
+          <n-form-item :label="$t('connection.folder')">
+            <n-select
+              :value="folderIdModel"
+              @update:value="(v: string) => folderIdModel = v"
+              :options="folderOptions"
+              :placeholder="$t('connection.noFolder')"
+              clearable
+            />
+          </n-form-item>
           <template v-for="field in currentFields" :key="field.key">
             <n-form-item v-if="field.type === 'text'" :label="field.label">
               <n-input :value="getValue(field.key)" @update:value="(v: string) => setValue(field.key, v)" :placeholder="field.placeholder" />
@@ -87,12 +96,21 @@ const driverTypes: { type: DriverType; name: string }[] = [
 
 const selectedDriver = ref<DriverType>('sqlite')
 const formModel = reactive<Record<string, string | number>>({})
+const folderIdModel = ref<string | undefined>(undefined)
 const testResult = ref<{ success: boolean; server_version: string; latency_ms: number } | null>(null)
 const testError = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const currentConfig = computed<DriverConfig>(() => DRIVER_CONFIGS[selectedDriver.value])
 const currentFields = computed<DriverFieldConfig[]>(() => currentConfig.value.fields)
+
+const folderOptions = computed(() => {
+  const options: { label: string; value: string }[] = []
+  for (const f of connectionStore.folders) {
+    options.push({ label: f.name, value: f.id })
+  }
+  return options
+})
 
 function getValue(key: string): string {
   const val = formModel[key]
@@ -133,6 +151,7 @@ watch(() => props.visible, (val) => {
     } else {
       selectedDriver.value = 'sqlite'
       initForm('sqlite')
+      folderIdModel.value = undefined
     }
     testResult.value = null
     testError.value = ''
@@ -152,7 +171,10 @@ async function loadConnection(id: string) {
   if (conn.user) formModel.user = conn.user
   if (conn.username) formModel.user = conn.username
   if (conn.database) formModel.database = conn.database
+  if (conn.password) formModel.password = conn.password
+  if (conn.options?.password) formModel.password = conn.options.password as string
   if (conn.connection_string) formModel.filePath = conn.connection_string
+  folderIdModel.value = conn.folderId
 }
 
 function initForm(driverType: DriverType) {
@@ -260,10 +282,12 @@ async function handleSave() {
         port: (formModel.port as number) || undefined,
         user: (formModel.user as string) || undefined,
         username: (formModel.user as string) || undefined,
+        password: config.password,
         database: (formModel.database as string) || undefined,
         driver_type: selectedDriver.value,
         connection_string: config.connection_string,
         options: config.options,
+        folderId: folderIdModel.value || undefined,
       })
     } else {
       const backendId = await connect(config)
@@ -274,10 +298,12 @@ async function handleSave() {
         port: (formModel.port as number) || undefined,
         user: (formModel.user as string) || undefined,
         username: (formModel.user as string) || undefined,
+        password: config.password,
         database: (formModel.database as string) || undefined,
         driver_type: selectedDriver.value,
         connection_string: config.connection_string,
         options: config.options,
+        folderId: folderIdModel.value || undefined,
       })
       connectionStore.updateConnectionStatus(backendId, 'connected')
       connectionStore.setCurrentConnection(backendId)

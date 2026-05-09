@@ -258,6 +258,27 @@ export const useConnectionStore = defineStore('connection', () => {
     persistOrder()
   }
 
+  function cloneConnection(sourceId: string): Connection | null {
+    const source = connections.value.find((c) => c.id === sourceId)
+    if (!source) return null
+
+    const newId = crypto.randomUUID?.() ?? `conn-${Date.now()}`
+    const cloned: Connection = {
+      ...source,
+      id: newId,
+      name: `${source.name} - 副本`,
+      status: 'idle',
+      folderId: source.folderId,
+      password: source.password,
+    }
+
+    connections.value.push(cloned)
+    connectionOrder.value.push(newId)
+    persistOrder()
+    saveToBackend(connections.value, folders.value)
+    return cloned
+  }
+
   return {
     connections,
     currentConnectionId,
@@ -278,5 +299,6 @@ export const useConnectionStore = defineStore('connection', () => {
     moveToFolder,
     moveConnection,
     moveFolder,
+    cloneConnection,
   }
 })
