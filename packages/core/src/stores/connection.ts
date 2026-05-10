@@ -24,7 +24,6 @@ export interface Connection {
   options?: Record<string, unknown>
   status: ConnectionStatus
   folderId?: string
-  password?: string
 }
 
 export interface ConnectionFolder {
@@ -83,20 +82,28 @@ export const useConnectionStore = defineStore('connection', () => {
   }
 
   async function saveToBackend(conns: Connection[], folderList: ConnectionFolder[]) {
-    const storedConns: StoredConnection[] = conns.map((c) => ({
-      id: c.id,
-      name: c.name,
-      host: c.host,
-      port: c.port,
-      user: c.user,
-      database: c.database,
-      username: c.username,
-      driver_type: c.driver_type,
-      connection_string: c.connection_string,
-      options: c.options,
-      folder_id: c.folderId,
-      password: c.password,
-    }))
+    // 加载当前已保存的连接，保留密码
+    const existingConns = await loadConnectionsApi().catch(() => [] as StoredConnection[])
+    const existingConnMap = new Map(existingConns.map(c => [c.id, c]))
+    
+    // 注意：Connection 对象中没有 password 字段，密码只在新建/编辑连接时临时传递
+    const storedConns: StoredConnection[] = conns.map((c) => {
+      const existing = existingConnMap.get(c.id)
+      return {
+        id: c.id,
+        name: c.name,
+        host: c.host,
+        port: c.port,
+        user: c.user,
+        database: c.database,
+        username: c.username,
+        driver_type: c.driver_type,
+        connection_string: c.connection_string,
+        options: c.options,
+        folder_id: c.folderId,
+        password: existing?.password, // 保留后端已保存的密码
+      }
+    })
 
     const storedFolders: StoredFolder[] = folderList.map((f) => ({
       id: f.id,
@@ -285,7 +292,6 @@ export const useConnectionStore = defineStore('connection', () => {
       name: `${source.name} - 副本`,
       status: 'idle',
       folderId: source.folderId,
-      password: source.password,
     }
 
     connections.value.push(cloned)

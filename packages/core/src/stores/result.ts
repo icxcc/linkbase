@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 
 export interface ResultSet {
   id: string
   columns: string[]
   rows: unknown[][]
   executionTime?: number
+  totalRows?: number
 }
 
 export interface LogEntry {
@@ -16,16 +17,32 @@ export interface LogEntry {
 }
 
 export const useResultStore = defineStore('result', () => {
-  const results = ref<ResultSet[]>([])
+  const results = shallowRef<ResultSet[]>([])
   const logs = ref<LogEntry[]>([])
   const error = ref<string | null>(null)
   const loading = ref(false)
   const lastExecutionTime = ref<number | undefined>(undefined)
   const lastAffectedRows = ref<number | undefined>(undefined)
+  const isStreaming = ref(false)
+  const currentChunk = ref(0)
+  const totalChunks = ref(0)
 
   function setResults(value: ResultSet[]) {
     results.value = value
     error.value = null
+    isStreaming.value = false
+    currentChunk.value = 0
+    totalChunks.value = 0
+  }
+
+  function appendRows(resultId: string, newRows: unknown[][], totalRows?: number) {
+    const result = results.value.find(r => r.id === resultId)
+    if (result) {
+      result.rows.push(...newRows)
+      if (totalRows !== undefined) {
+        result.totalRows = totalRows
+      }
+    }
   }
 
   function setError(message: string | null) {
@@ -44,6 +61,12 @@ export const useResultStore = defineStore('result', () => {
     lastAffectedRows.value = affected
   }
 
+  function setStreaming(isStreamingValue: boolean, chunk: number = 0, total: number = 0) {
+    isStreaming.value = isStreamingValue
+    currentChunk.value = chunk
+    totalChunks.value = total
+  }
+
   function addLog(entry: Omit<LogEntry, 'id' | 'timestamp'>) {
     logs.value.push({
       ...entry,
@@ -57,6 +80,9 @@ export const useResultStore = defineStore('result', () => {
     error.value = null
     lastExecutionTime.value = undefined
     lastAffectedRows.value = undefined
+    isStreaming.value = false
+    currentChunk.value = 0
+    totalChunks.value = 0
   }
 
   return {
@@ -66,10 +92,15 @@ export const useResultStore = defineStore('result', () => {
     loading,
     lastExecutionTime,
     lastAffectedRows,
+    isStreaming,
+    currentChunk,
+    totalChunks,
     setResults,
+    appendRows,
     setError,
     setLoading,
     setExecutionMeta,
+    setStreaming,
     addLog,
     clearResults,
   }

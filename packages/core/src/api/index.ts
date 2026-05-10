@@ -51,11 +51,11 @@ function extractErrorMessage(error: unknown): string {
 }
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  return tauriInvoke<T>(cmd, args)
+    return tauriInvoke<T>(cmd, args)
 }
 
-export async function connect(config: ConnectionConfig): Promise<ConnectionId> {
-  return invoke<ConnectionId>('connect', { config })
+export async function connect(configOrId: ConnectionConfig | ConnectionId): Promise<ConnectionId> {
+    return invoke<ConnectionId>('connect', { configOrId })
 }
 
 export async function disconnect(id: ConnectionId): Promise<void> {
@@ -75,7 +75,24 @@ export async function testConnection(config: ConnectionConfig): Promise<TestResu
 }
 
 export async function executeSql(id: ConnectionId, sql: string): Promise<QueryResult> {
-  return invoke<QueryResult>('execute_sql', { id, sql })
+    return invoke<QueryResult>('execute_sql', { id, sql })
+}
+
+export interface QueryChunk {
+    columns: ColumnInfo[]
+    rows: Value[][]
+    total_rows: number
+    chunk_index: number
+    is_last: boolean
+    execution_time: number
+}
+
+export async function executeSqlStreaming(
+    id: ConnectionId,
+    sql: string,
+    chunkSize?: number
+): Promise<QueryChunk[]> {
+    return invoke<QueryChunk[]>('execute_sql_streaming', { id, sql, chunk_size: chunkSize })
 }
 
 export async function cancelQuery(id: ConnectionId): Promise<void> {

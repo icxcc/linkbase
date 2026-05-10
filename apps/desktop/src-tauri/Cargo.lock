@@ -808,6 +808,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
@@ -2532,7 +2533,6 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -3248,7 +3248,6 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "uuid",
 ]
 
 [[package]]

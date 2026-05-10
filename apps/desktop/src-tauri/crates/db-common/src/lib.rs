@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionConfig {
@@ -111,6 +112,30 @@ pub struct QueryResult {
     pub execution_time: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub affected_rows: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryChunk {
+    pub columns: Vec<ColumnInfo>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+    pub total_rows: usize,
+    pub chunk_index: usize,
+    pub is_last: bool,
+    pub execution_time: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteRequest {
+    pub sql: String,
+    pub chunk_size: Option<usize>,
+    pub max_rows: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryMetadata {
+    pub columns: Vec<ColumnInfo>,
+    pub total_rows: usize,
+    pub execution_time: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -376,6 +401,53 @@ pub trait DbDriver: Send + Sync {
     async fn connect(&mut self, config: &ConnectionConfig) -> Result<(), AppError>;
     async fn disconnect(&mut self) -> Result<(), AppError>;
     async fn execute(&mut self, sql: &str) -> Result<QueryResult, AppError>;
+    async fn execute_streaming(
+        &mut self,
+        sql: &str,
+        chunk_size: usize,
+    ) -> Result<mpsc::Receiver<Result<QueryChunk, AppError>>, AppError> {
+        let (tx, rx) = mpsc::channel(1);
+        let result = self.execute(sql).await;
+        match result {
+            Ok(mut query_result) => {
+                let columns = query_result.columns.clone();
+                let total_rows = query_result.row_count;
+                let mut rows = query_result.rows;
+                let mut chunk_index = 0;
+                
+                tokio::spawn(async move {
+                    while !rows.is_empty() {
+                        let chunk_rows = if rows.len() <= chunk_size {
+                            rows.drain(..).collect()
+                        } else {
+                            rows.drain(..chunk_size).collect()
+                        };
+                        
+                        let chunk = QueryChunk {
+                            columns: if chunk_index == 0 { columns.clone() } else { vec![] },
+                            rows: chunk_rows,
+                            total_rows,
+                            chunk_index,
+                            is_last: rows.is_empty(),
+                            execution_time: 0.0,
+                        };
+                        
+                        if tx.send(Ok(chunk)).await.is_err() {
+                            break;
+                        }
+                        chunk_index += 1;
+                    }
+                });
+                Ok(rx)
+            }
+            Err(e) => {
+                tokio::spawn(async move {
+                    let _ = tx.send(Err(e)).await;
+                });
+                Ok(rx)
+            }
+        }
+    }
     async fn get_metadata(&self) -> Result<DatabaseMetadata, AppError>;
     async fn cancel_query(&self) -> Result<(), AppError> {
         Err(AppError::other("该驱动不支持取消查询"))

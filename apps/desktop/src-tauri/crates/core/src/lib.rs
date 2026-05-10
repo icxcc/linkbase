@@ -1,5 +1,5 @@
 use dashmap::DashMap;
-use db_common::{AppError, ConnectionConfig, DatabaseMetadata, DbDriver, QueryResult, TestResult};
+use db_common::{AppError, ConnectionConfig, DatabaseMetadata, DbDriver, QueryChunk, QueryResult, TestResult};
 use mysql_driver::MySqlDriver;
 use postgres_driver::PostgresDriver;
 use sqlite_driver::SqliteDriver;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub mod connection_storage;
-pub use connection_storage::{load_connections, load_folders, save_connections, save_folders, StoredConnection, StoredFolder};
+pub use connection_storage::{load_connections, load_connections_without_password, get_connection_by_id, load_folders, save_connections, save_folders, StoredConnection, StoredFolder};
 
 pub struct ConnectionManager {
     connections: DashMap<String, Arc<Mutex<Box<dyn DbDriver>>>>,
@@ -56,6 +56,22 @@ impl ConnectionManager {
 
         let mut driver = driver_arc.lock().await;
         driver.execute(sql).await
+    }
+
+    pub async fn execute_streaming(
+        &self,
+        id: &str,
+        sql: &str,
+        chunk_size: usize,
+    ) -> Result<tokio::sync::mpsc::Receiver<Result<QueryChunk, AppError>>, AppError> {
+        let driver_arc = self
+            .connections
+            .get(id)
+            .ok_or_else(|| AppError::not_found(format!("连接 {}", id)))?
+            .clone();
+
+        let mut driver = driver_arc.lock().await;
+        driver.execute_streaming(sql, chunk_size).await
     }
 
     pub async fn get_metadata(&self, id: &str) -> Result<DatabaseMetadata, AppError> {

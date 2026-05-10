@@ -78,7 +78,7 @@ import { LModal } from '@linkbase/components'
 import { NForm, NFormItem, NInput, NInputNumber, NSelect, NButton, NIcon, NSpace } from 'naive-ui'
 import { ServerOutline, PulseOutline } from '@vicons/ionicons5'
 import { useConnectionStore } from '@linkbase/core/stores/connection'
-import { connect, testConnection as testConnectionApi, type ConnectionConfig } from '@linkbase/core/api'
+import { connect, testConnection as testConnectionApi, saveConnections, type ConnectionConfig } from '@linkbase/core/api'
 import { DRIVER_CONFIGS } from '../config/database-types'
 import type { DriverType, DriverConfig, DriverFieldConfig } from '../config/database-types'
 
@@ -171,10 +171,9 @@ async function loadConnection(id: string) {
   if (conn.user) formModel.user = conn.user
   if (conn.username) formModel.user = conn.username
   if (conn.database) formModel.database = conn.database
-  if (conn.password) formModel.password = conn.password
-  if (conn.options?.password) formModel.password = conn.options.password as string
   if (conn.connection_string) formModel.filePath = conn.connection_string
   folderIdModel.value = conn.folderId
+  // 注意：密码字段不会从 Store 加载，用户需要重新输入或直接连接（密码已在后端存储）
 }
 
 function initForm(driverType: DriverType) {
@@ -274,37 +273,67 @@ async function handleSave() {
   try {
     const config = buildConfig()
     
+    // 1. 先准备要保存的连接数据（包含密码）
+    const connectionToSave = {
+      id: props.connectionId || crypto.randomUUID?.() || `conn-${Date.now()}`,
+      name: (formModel.name as string) || 'Unnamed',
+      host: (formModel.host as string) || undefined,
+      port: (formModel.port as number) || undefined,
+      user: (formModel.user as string) || undefined,
+      username: (formModel.user as string) || undefined,
+      password: config.password,
+      database: (formModel.database as string) || undefined,
+      driver_type: selectedDriver.value,
+      connection_string: config.connection_string,
+      options: config.options,
+      folder_id: folderIdModel.value || undefined,
+    }
+    
     if (props.connectionId) {
-      await connect(config)
-      connectionStore.updateConnection(props.connectionId, {
-        name: (formModel.name as string) || 'Unnamed',
-        host: (formModel.host as string) || undefined,
-        port: (formModel.port as number) || undefined,
-        user: (formModel.user as string) || undefined,
-        username: (formModel.user as string) || undefined,
-        password: config.password,
-        database: (formModel.database as string) || undefined,
-        driver_type: selectedDriver.value,
-        connection_string: config.connection_string,
-        options: config.options,
-        folderId: folderIdModel.value || undefined,
+      // 编辑模式：先保存连接信息（含密码）
+      const updatedConnections = connectionStore.connections.map(c => {
+        if (c.id === props.connectionId) {
+          return { ...connectionToSave, id: props.connectionId }
+        }
+        return {
+          ...c,
+          folder_id: c.folderId,
+        }
       })
+      await saveConnections(updatedConnections as any)
+      
+      // 然后用连接 ID 进行连接
+      const backendId = await connect(props.connectionId)
+      connectionStore.updateConnectionStatus(backendId, 'connected')
+      connectionStore.setCurrentConnection(backendId)
     } else {
-      const backendId = await connect(config)
+      // 新建模式：先保存连接信息（含密码）
+      const newConnections = [
+        ...connectionStore.connections.map(c => ({ ...c, folder_id: c.folderId })),
+        connectionToSave
+      ]
+      await saveConnections(newConnections as any)
+      
+      // 然后用保存的连接 ID 进行连接
+      const backendId = await connect(connectionToSave.id)
+      
+      // 更新 Store（不含密码）
       connectionStore.addConnection({
         id: backendId,
-        name: (formModel.name as string) || 'Unnamed',
-        host: (formModel.host as string) || undefined,
-        port: (formModel.port as number) || undefined,
-        user: (formModel.user as string) || undefined,
-        username: (formModel.user as string) || undefined,
-        password: config.password,
-        database: (formModel.database as string) || undefined,
-        driver_type: selectedDriver.value,
-        connection_string: config.connection_string,
-        options: config.options,
-        folderId: folderIdModel.value || undefined,
+        name: connectionToSave.name,
+        host: connectionToSave.host,
+        port: connectionToSave.port,
+        user: connectionToSave.user,
+        username: connectionToSave.username,
+        database: connectionToSave.database,
+        driver_type: connectionToSave.driver_type,
+        connection_string: connectionToSave.connection_string,
+        options: connectionToSave.options,
+        folderId: connectionToSave.folder_id,
+        status: 'idle',
       })
+      
+      connectionStore.updateConnectionBackendId(connectionToSave.id, backendId)
       connectionStore.updateConnectionStatus(backendId, 'connected')
       connectionStore.setCurrentConnection(backendId)
     }

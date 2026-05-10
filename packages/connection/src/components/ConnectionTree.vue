@@ -1199,17 +1199,8 @@ async function handleConnect(connId: string) {
 
   connectionStore.updateConnectionStatus(connId, 'connecting')
   try {
-    const config = {
-      driver_type: c.driver_type,
-      host: c.host,
-      port: c.port,
-      user: c.user || c.username,
-      password: c.password || (c.options?.password as string | undefined),
-      database: c.database,
-      connection_string: c.connection_string,
-      options: c.options || {},
-    }
-    const backendId = await connectApi(config)
+    // 使用连接 ID 连接，从后端读取密码
+    const backendId = await connectApi(connId)
     connectionStore.updateConnectionBackendId(connId, backendId)
     connectionStore.updateConnectionStatus(backendId, 'connected')
     connectionStore.setCurrentConnection(backendId)

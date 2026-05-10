@@ -113,6 +113,23 @@ pub fn load_connections() -> Result<Vec<StoredConnection>, AppError> {
     Ok(connections)
 }
 
+/// 加载连接，但不返回密码字段（用于前端）
+pub fn load_connections_without_password() -> Result<Vec<StoredConnection>, AppError> {
+    let mut connections = load_connections()?;
+    for conn in &mut connections {
+        conn.password = None;
+    }
+    Ok(connections)
+}
+
+/// 通过 ID 获取单个连接（包含密码）
+pub fn get_connection_by_id(id: &str) -> Result<StoredConnection, AppError> {
+    let connections = load_connections()?;
+    connections.into_iter()
+        .find(|c| c.id == id)
+        .ok_or_else(|| AppError::not_found(format!("连接 {} 不存在", id)))
+}
+
 pub fn save_folders(folders: Vec<StoredFolder>) -> Result<(), AppError> {
     let path = get_storage_path(FOLDERS_FILE)?;
 
