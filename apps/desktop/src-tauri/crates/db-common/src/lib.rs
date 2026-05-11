@@ -449,6 +449,15 @@ pub trait DbDriver: Send + Sync {
         }
     }
     async fn get_metadata(&self) -> Result<DatabaseMetadata, AppError>;
+    async fn get_databases(&self) -> Result<Vec<String>, AppError> {
+        Ok(vec![])
+    }
+    async fn get_schemas(&self, _database: Option<&str>) -> Result<Vec<String>, AppError> {
+        Ok(vec![])
+    }
+    async fn switch_database(&mut self, _database: &str) -> Result<(), AppError> {
+        Ok(())
+    }
     async fn cancel_query(&self) -> Result<(), AppError> {
         Err(AppError::other("该驱动不支持取消查询"))
     }

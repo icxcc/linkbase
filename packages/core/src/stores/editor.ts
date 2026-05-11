@@ -1,20 +1,35 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+export interface TabSession {
+  connectionId: string | null
+  database: string | null
+  schema: string | null
+}
+
 export interface Tab {
   id: string
   name: string
   sql: string
+  session: TabSession
 }
 
 export const useEditorStore = defineStore('editor', () => {
   const tabs = ref<Tab[]>([])
   const activeTabId = ref<string | null>(null)
 
-  function addTab(tab: Tab) {
-    tabs.value.push(tab)
+  function addTab(tab: Omit<Tab, 'session'> & { session?: Partial<TabSession> }) {
+    const fullTab: Tab = {
+      ...tab,
+      session: {
+        connectionId: tab.session?.connectionId ?? null,
+        database: tab.session?.database ?? null,
+        schema: tab.session?.schema ?? null,
+      },
+    }
+    tabs.value.push(fullTab)
     if (!activeTabId.value) {
-      activeTabId.value = tab.id
+      activeTabId.value = fullTab.id
     }
   }
 
@@ -40,6 +55,31 @@ export const useEditorStore = defineStore('editor', () => {
     }
   }
 
+  function updateTabSession(id: string, session: Partial<TabSession>) {
+    const tab = tabs.value.find((t) => t.id === id)
+    if (tab) {
+      if (session.connectionId !== undefined) {
+        tab.session.connectionId = session.connectionId
+        // Reset database and schema when connection changes
+        if (session.database === undefined) tab.session.database = null
+        if (session.schema === undefined) tab.session.schema = null
+      }
+      if (session.database !== undefined) {
+        tab.session.database = session.database
+        // Reset schema when database changes
+        if (session.schema === undefined) tab.session.schema = null
+      }
+      if (session.schema !== undefined) {
+        tab.session.schema = session.schema
+      }
+    }
+  }
+
+  function getTabSession(id: string): TabSession | null {
+    const tab = tabs.value.find((t) => t.id === id)
+    return tab?.session ?? null
+  }
+
   return {
     tabs,
     activeTabId,
@@ -47,5 +87,7 @@ export const useEditorStore = defineStore('editor', () => {
     closeTab,
     setActiveTab,
     updateTabSql,
+    updateTabSession,
+    getTabSession,
   }
 })

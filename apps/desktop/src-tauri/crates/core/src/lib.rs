@@ -101,6 +101,39 @@ impl ConnectionManager {
         self.get_metadata(id).await
     }
 
+    pub async fn get_databases(&self, id: &str) -> Result<Vec<String>, AppError> {
+        let driver_arc = self
+            .connections
+            .get(id)
+            .ok_or_else(|| AppError::not_found(format!("连接 {}", id)))?
+            .clone();
+
+        let driver = driver_arc.lock().await;
+        driver.get_databases().await
+    }
+
+    pub async fn get_schemas(&self, id: &str, database: Option<&str>) -> Result<Vec<String>, AppError> {
+        let driver_arc = self
+            .connections
+            .get(id)
+            .ok_or_else(|| AppError::not_found(format!("连接 {}", id)))?
+            .clone();
+
+        let driver = driver_arc.lock().await;
+        driver.get_schemas(database).await
+    }
+
+    pub async fn switch_database(&self, id: &str, database: &str) -> Result<(), AppError> {
+        let driver_arc = self
+            .connections
+            .get(id)
+            .ok_or_else(|| AppError::not_found(format!("连接 {}", id)))?
+            .clone();
+
+        let mut driver = driver_arc.lock().await;
+        driver.switch_database(database).await
+    }
+
     pub async fn cancel_query(&self, id: &str) -> Result<(), AppError> {
         let driver_arc = self
             .connections

@@ -565,6 +565,32 @@ impl DbDriver for MySqlDriver {
         Ok(())
     }
 
+    async fn get_databases(&self) -> Result<Vec<String>, AppError> {
+        let pool = {
+            let guard = self.pool.lock().await;
+            guard.as_ref().ok_or_else(Self::not_connected)?.clone()
+        };
+        Self::fetch_databases(&pool).await
+    }
+
+    async fn get_schemas(&self, _database: Option<&str>) -> Result<Vec<String>, AppError> {
+        // MySQL doesn't have schemas separate from databases
+        Ok(vec![])
+    }
+
+    async fn switch_database(&mut self, database: &str) -> Result<(), AppError> {
+        let pool = {
+            let guard = self.pool.lock().await;
+            guard.as_ref().ok_or_else(Self::not_connected)?.clone()
+        };
+        let use_sql = format!("USE `{}`", database.replace('`', "``"));
+        sqlx::query::<sqlx::MySql>(&use_sql)
+            .execute(&pool)
+            .await
+            .map_err(Self::query_err)?;
+        Ok(())
+    }
+
     async fn test_connection(&mut self, config: &ConnectionConfig) -> Result<TestResult, AppError> {
         let url = config.build_connection_string();
         let start = Instant::now();

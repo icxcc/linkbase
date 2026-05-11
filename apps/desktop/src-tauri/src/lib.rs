@@ -81,6 +81,32 @@ async fn test_connection(
 }
 
 #[tauri::command]
+async fn get_databases(
+    state: State<'_, ConnectionManager>,
+    id: String,
+) -> Result<Vec<String>, AppError> {
+    state.get_databases(&id).await
+}
+
+#[tauri::command]
+async fn get_schemas(
+    state: State<'_, ConnectionManager>,
+    id: String,
+    database: Option<String>,
+) -> Result<Vec<String>, AppError> {
+    state.get_schemas(&id, database.as_deref()).await
+}
+
+#[tauri::command]
+async fn switch_database(
+    state: State<'_, ConnectionManager>,
+    id: String,
+    database: String,
+) -> Result<(), AppError> {
+    state.switch_database(&id, &database).await
+}
+
+#[tauri::command]
 async fn save_connections_cmd(connections: Vec<StoredConnection>) -> Result<(), AppError> {
     save_connections(connections)
 }
@@ -113,6 +139,9 @@ pub fn run() {
             execute_sql_streaming,
             get_metadata,
             get_enhanced_metadata,
+            get_databases,
+            get_schemas,
+            switch_database,
             cancel_query,
             test_connection,
             save_connections_cmd,

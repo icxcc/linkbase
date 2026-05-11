@@ -15,6 +15,7 @@ export {
 export {
   useEditorStore,
   type Tab,
+  type TabSession,
 } from './stores/editor'
 
 export {
@@ -50,6 +51,9 @@ export {
   cancelQuery,
   getMetadata,
   getEnhancedMetadata,
+  getDatabases,
+  getSchemas,
+  switchDatabase,
   testConnection,
   type ConnectionConfig,
   type ConnectionId,

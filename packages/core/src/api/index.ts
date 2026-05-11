@@ -267,4 +267,16 @@ export async function loadFolders(): Promise<StoredFolder[]> {
   return invoke<StoredFolder[]>('load_folders_cmd')
 }
 
+export async function getDatabases(id: ConnectionId): Promise<string[]> {
+  return invoke<string[]>('get_databases', { id })
+}
+
+export async function getSchemas(id: ConnectionId, database?: string): Promise<string[]> {
+  return invoke<string[]>('get_schemas', { id, database })
+}
+
+export async function switchDatabase(id: ConnectionId, database: string): Promise<void> {
+  return invoke<void>('switch_database', { id, database })
+}
+
 export { extractErrorMessage }

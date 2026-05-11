@@ -108,4 +108,11 @@ export default {
   history: {
     confirmClear: '确定要清除所有历史记录吗？',
   },
+  session: {
+    selectConnection: '选择连接',
+    selectDatabase: '选择数据库',
+    selectSchema: '选择 Schema',
+    loading: '加载中...',
+    noConnection: '未连接',
+  },
 }

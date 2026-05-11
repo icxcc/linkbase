@@ -108,4 +108,11 @@ export default {
   history: {
     confirmClear: 'Are you sure you want to clear all history?',
   },
+  session: {
+    selectConnection: 'Select Connection',
+    selectDatabase: 'Select Database',
+    selectSchema: 'Select Schema',
+    loading: 'Loading...',
+    noConnection: 'Not Connected',
+  },
 }

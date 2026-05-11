@@ -8,6 +8,7 @@ import { useEditorStore } from '@linkbase/core/stores/editor'
 import { useAppStore } from '@linkbase/core/stores/app'
 import { useMonaco } from '../composables/useMonaco'
 import EditorTabs from './EditorTabs.vue'
+import SessionSelector from './SessionSelector.vue'
 
 const { t } = useI18n()
 
@@ -34,7 +35,9 @@ const activeTab = computed(() =>
 )
 
 const activeConnectionName = computed(() => {
-  const conn = connectionStore.connections.find((c) => c.id === connectionStore.currentConnectionId)
+  const tab = editorStore.tabs.find((t) => t.id === editorStore.activeTabId)
+  if (!tab?.session?.connectionId) return null
+  const conn = connectionStore.connections.find((c) => c.id === tab.session.connectionId)
   return conn?.name ?? null
 })
 
@@ -199,8 +202,7 @@ onUnmounted(() => {
     <EditorTabs ref="editorTabs" />
     <div class="sql-editor-toolbar">
       <div class="sql-editor-connection">
-        <span v-if="activeConnectionName" class="connection-name">{{ activeConnectionName }}</span>
-        <span v-else class="connection-none">{{ t('editor.notConnected') }}</span>
+        <SessionSelector />
       </div>
       <div class="sql-editor-actions">
         <LButton size="small" type="primary" :disabled="!activeConnectionName" @click="handleExecuteAll">
