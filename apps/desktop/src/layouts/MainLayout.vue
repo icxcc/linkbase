@@ -6,6 +6,7 @@ import { SettingsOutline, SunnyOutline, MoonOutline, RemoveOutline, SquareOutlin
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '@linkbase/core/stores/app'
 import { useConnectionStore } from '@linkbase/core/stores/connection'
+import { useEditorStore } from '@linkbase/core/stores/editor'
 import { useResultStore } from '@linkbase/core/stores/result'
 import { useHistoryStore } from '@linkbase/core/stores/history'
 import { executeSql, type ColumnInfo } from '@linkbase/core/api'
@@ -61,14 +62,18 @@ const showCreateDialog = ref(false)
 const editingConnectionId = ref<string | undefined>(undefined)
 
 async function handleExecute(sql: string) {
-  const connectionId = connectionStore.currentConnectionId
+  const editorStore = useEditorStore()
+  const activeTab = editorStore.tabs.find((t) => t.id === editorStore.activeTabId)
+  const connectionId = activeTab?.session?.connectionId ?? connectionStore.currentConnectionId
   if (!connectionId) return
+
+  const database = activeTab?.session?.database ?? undefined
 
   resultStore.setLoading(true)
   resultStore.setError(null)
 
   try {
-    const res = await executeSql(connectionId, sql)
+    const res = await executeSql(connectionId, sql, database)
     const columns = res.columns.map((col: ColumnInfo) => col.name)
     resultStore.setResults([{
       id: crypto.randomUUID?.() ?? String(Date.now()),

@@ -23,8 +23,9 @@ async fn execute_sql(
     state: State<'_, ConnectionManager>,
     id: String,
     sql: String,
+    database: Option<String>,
 ) -> Result<QueryResult, AppError> {
-    state.execute(&id, &sql).await
+    state.execute_with_context(&id, &sql, database.as_deref()).await
 }
 
 #[tauri::command]

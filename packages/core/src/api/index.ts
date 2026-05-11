@@ -74,7 +74,7 @@ export async function testConnection(config: ConnectionConfig): Promise<TestResu
   return invoke<TestResult>('test_connection', { config })
 }
 
-export async function executeSql(id: ConnectionId, sql: string): Promise<QueryResult> {
+export async function executeSql(id: ConnectionId, sql: string, database?: string): Promise<QueryResult> {
   const { detectDangerousSql, confirmDangerousOperation } = await import('../utils/dangerousSql')
   const dangerousInfo = detectDangerousSql(sql)
   
@@ -85,7 +85,7 @@ export async function executeSql(id: ConnectionId, sql: string): Promise<QueryRe
     }
   }
   
-  return invoke<QueryResult>('execute_sql', { id, sql })
+  return invoke<QueryResult>('execute_sql', { id, sql, database: database || null })
 }
 
 export interface QueryChunk {
