@@ -52,6 +52,9 @@ export default {
     editConnection: 'Edit Connection',
     folder: 'Folder',
     noFolder: 'No Folder',
+    collapseAll: 'Collapse All',
+    refresh: 'Refresh',
+    emptyHint: 'Click the button above to create your first database connection',
   },
   editor: {
     notConnected: 'Not Connected',
