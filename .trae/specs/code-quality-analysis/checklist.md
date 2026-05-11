@@ -2,13 +2,13 @@
 
 ## 安全问题
 - [x] S1 - 密码明文存储：前端不存储密码，后端统一管理
-- [ ] S2 - 危险操作确认：DROP/TRUNCATE/DELETE 语句触发确认对话框
+- [x] S2 - 危险操作确认：DROP/TRUNCATE/DELETE 语句触发确认对话框
 
 ## 性能问题
 - [x] P1 - 大数据集流式加载：已实现 execute_streaming 方法和 QueryChunk
-- [ ] P2 - 锁内 IO：异步操作不在锁内执行
+- [x] P2 - 锁内 IO：异步操作不在锁内执行
 - [x] P3 - 响应式优化：results 使用 shallowRef
-- [ ] P4 - 同步 Mutex：使用 tokio::sync::Mutex
+- [x] P4 - 同步 Mutex：使用 tokio::sync::Mutex
 - [ ] P5 - Metadata 加载：支持懒加载
 
 ## 代码规范

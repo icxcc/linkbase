@@ -28,7 +28,7 @@
   - `programmatic`: 流式查询能正确分批返回数据
   - `human-judgement`: 大结果集查询不卡顿
 
-## [ ] 任务 3：锁内 IO 问题修复
+## [x] 任务 3：锁内 IO 问题修复
 - **Priority**: P0
 - **Depends On**: None
 - **Description**: 
@@ -51,7 +51,8 @@
   - `programmatic`: 大结果集渲染性能提升 > 50%
   - `human-judgement`: 组件行为正确无异常
 
-## [ ] 任务 5：统一错误处理
+## [x] 任务 5：危险操作确认机制
+## [ ] 任务 6：统一错误处理
 - **Priority**: P1
 - **Depends On**: None
 - **Description**: 

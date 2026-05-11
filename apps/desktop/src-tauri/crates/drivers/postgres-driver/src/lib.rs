@@ -5,7 +5,7 @@ use db_common::{
     TablespaceInfo, TestResult, TriggerInfo, ViewInfo,
 };
 use sqlx::{Column, Row, TypeInfo};
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 use std::time::Instant;
 
 pub struct PostgresDriver {
@@ -29,10 +29,6 @@ impl PostgresDriver {
 
     fn query_err(err: sqlx::Error) -> AppError {
         AppError::query_err(err.to_string())
-    }
-
-    fn mutex_poisoned() -> AppError {
-        AppError::other("内部锁错误")
     }
 
     fn not_connected() -> AppError {
@@ -73,34 +69,28 @@ impl DbDriver for PostgresDriver {
             .await
             .map_err(Self::query_err)?;
 
-        {
-            let mut guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
-            *guard = Some(pool);
-        }
+        let mut pool_guard = self.pool.lock().await;
+        *pool_guard = Some(pool);
 
-        {
-            let mut guard = self.backend_pid.lock().map_err(|_| Self::mutex_poisoned())?;
-            *guard = Some(backend_pid);
-        }
+        let mut pid_guard = self.backend_pid.lock().await;
+        *pid_guard = Some(backend_pid);
 
-        {
-            let mut guard = self.connection_url.lock().map_err(|_| Self::mutex_poisoned())?;
-            *guard = Some(url);
-        }
+        let mut url_guard = self.connection_url.lock().await;
+        *url_guard = Some(url);
 
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<(), AppError> {
         let pool = {
-            let mut guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            let mut guard = self.pool.lock().await;
             guard.take()
         };
         if let Some(pool) = pool {
             pool.close().await;
         }
 
-        let mut pid_guard = self.backend_pid.lock().map_err(|_| Self::mutex_poisoned())?;
+        let mut pid_guard = self.backend_pid.lock().await;
         *pid_guard = None;
 
         Ok(())
@@ -109,7 +99,7 @@ impl DbDriver for PostgresDriver {
     async fn execute(&mut self, sql: &str) -> Result<QueryResult, AppError> {
         let start = Instant::now();
         let pool = {
-            let guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            let guard = self.pool.lock().await;
             guard.as_ref().ok_or_else(Self::not_connected)?.clone()
         };
 
@@ -180,12 +170,12 @@ impl DbDriver for PostgresDriver {
 
     async fn get_metadata(&self) -> Result<DatabaseMetadata, AppError> {
         let pool = {
-            let guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            let guard = self.pool.lock().await;
             guard.as_ref().ok_or_else(Self::not_connected)?.clone()
         };
 
         let base_url = {
-            let url_guard = self.connection_url.lock().map_err(|_| Self::mutex_poisoned())?;
+            let url_guard = self.connection_url.lock().await;
             url_guard.as_ref().ok_or_else(Self::not_connected)?.clone()
         };
 
@@ -267,11 +257,11 @@ impl DbDriver for PostgresDriver {
 
     async fn cancel_query(&self) -> Result<(), AppError> {
         let pid = {
-            let guard = self.backend_pid.lock().map_err(|_| Self::mutex_poisoned())?;
+            let guard = self.backend_pid.lock().await;
             guard.ok_or_else(Self::not_connected)?
         };
         let pool = {
-            let guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            let guard = self.pool.lock().await;
             guard.as_ref().ok_or_else(Self::not_connected)?.clone()
         };
 

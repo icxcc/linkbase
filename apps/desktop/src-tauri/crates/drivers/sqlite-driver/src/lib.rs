@@ -4,7 +4,7 @@ use db_common::{
     TableInfo, TestResult, ViewInfo,
 };
 use rusqlite::{types::ValueRef, Connection};
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 use std::time::Instant;
 
 pub struct SqliteDriver {
@@ -24,10 +24,6 @@ impl SqliteDriver {
 
     fn query_err(err: rusqlite::Error) -> AppError {
         AppError::query_err(err.to_string())
-    }
-
-    fn mutex_poisoned() -> AppError {
-        AppError::other("内部锁错误")
     }
 
     fn not_connected() -> AppError {
@@ -62,20 +58,20 @@ impl DbDriver for SqliteDriver {
         } else {
             Connection::open(&path).map_err(Self::conn_err)?
         };
-        let mut guard = self.conn.lock().map_err(|_| Self::mutex_poisoned())?;
+        let mut guard = self.conn.lock().await;
         *guard = Some(conn);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<(), AppError> {
-        let mut guard = self.conn.lock().map_err(|_| Self::mutex_poisoned())?;
+        let mut guard = self.conn.lock().await;
         guard.take();
         Ok(())
     }
 
     async fn execute(&mut self, sql: &str) -> Result<QueryResult, AppError> {
         let start = Instant::now();
-        let mut guard = self.conn.lock().map_err(|_| Self::mutex_poisoned())?;
+        let mut guard = self.conn.lock().await;
         let conn = guard.as_mut().ok_or_else(Self::not_connected)?;
 
         if Self::is_query_statement(sql) {
@@ -149,7 +145,7 @@ impl DbDriver for SqliteDriver {
     }
 
     async fn get_metadata(&self) -> Result<DatabaseMetadata, AppError> {
-        let guard = self.conn.lock().map_err(|_| Self::mutex_poisoned())?;
+        let guard = self.conn.lock().await;
         let conn = guard.as_ref().ok_or_else(Self::not_connected)?;
 
         let mut metadata_tables = Self::fetch_tables(conn)?;

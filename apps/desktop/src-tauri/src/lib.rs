@@ -1,4 +1,4 @@
-use linkbase_core::{ConnectionManager, StoredConnection, StoredFolder, save_connections, load_connections, load_connections_without_password, get_connection_by_id, save_folders, load_folders};
+use linkbase_core::{ConnectionManager, StoredConnection, StoredFolder, save_connections, load_connections_without_password, get_connection_by_id, save_folders, load_folders};
 use db_common::{AppError, ConnectionConfig, DatabaseMetadata, QueryChunk, QueryResult, TestResult};
 use tauri::State;
 

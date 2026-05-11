@@ -409,7 +409,7 @@ pub trait DbDriver: Send + Sync {
         let (tx, rx) = mpsc::channel(1);
         let result = self.execute(sql).await;
         match result {
-            Ok(mut query_result) => {
+            Ok(query_result) => {
                 let columns = query_result.columns.clone();
                 let total_rows = query_result.row_count;
                 let mut rows = query_result.rows;

@@ -75,7 +75,17 @@ export async function testConnection(config: ConnectionConfig): Promise<TestResu
 }
 
 export async function executeSql(id: ConnectionId, sql: string): Promise<QueryResult> {
-    return invoke<QueryResult>('execute_sql', { id, sql })
+  const { detectDangerousSql, confirmDangerousOperation } = await import('../utils/dangerousSql')
+  const dangerousInfo = detectDangerousSql(sql)
+  
+  if (dangerousInfo.isDangerous) {
+    const confirmed = await confirmDangerousOperation(dangerousInfo, sql)
+    if (!confirmed) {
+      throw new Error('操作已取消')
+    }
+  }
+  
+  return invoke<QueryResult>('execute_sql', { id, sql })
 }
 
 export interface QueryChunk {
@@ -92,7 +102,17 @@ export async function executeSqlStreaming(
     sql: string,
     chunkSize?: number
 ): Promise<QueryChunk[]> {
-    return invoke<QueryChunk[]>('execute_sql_streaming', { id, sql, chunk_size: chunkSize })
+  const { detectDangerousSql, confirmDangerousOperation } = await import('../utils/dangerousSql')
+  const dangerousInfo = detectDangerousSql(sql)
+  
+  if (dangerousInfo.isDangerous) {
+    const confirmed = await confirmDangerousOperation(dangerousInfo, sql)
+    if (!confirmed) {
+      throw new Error('操作已取消')
+    }
+  }
+  
+  return invoke<QueryChunk[]>('execute_sql_streaming', { id, sql, chunk_size: chunkSize })
 }
 
 export async function cancelQuery(id: ConnectionId): Promise<void> {

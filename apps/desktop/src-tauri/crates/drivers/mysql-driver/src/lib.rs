@@ -5,7 +5,7 @@ use db_common::{
 };
 use sqlx::mysql::{MySqlPool, MySqlRow};
 use sqlx::{Column, Row, TypeInfo, ValueRef};
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 use std::time::Instant;
 
 pub struct MySqlDriver {
@@ -29,10 +29,6 @@ impl MySqlDriver {
 
     fn query_err(err: sqlx::Error) -> AppError {
         AppError::query_err(err.to_string())
-    }
-
-    fn mutex_poisoned() -> AppError {
-        AppError::other("内部锁错误")
     }
 
     fn not_connected() -> AppError {
@@ -399,45 +395,29 @@ impl DbDriver for MySqlDriver {
             .await
             .map_err(Self::conn_err)?;
 
-        {
-            let mut url_guard = self
-                .connection_url
-                .lock()
-                .map_err(|_| Self::mutex_poisoned())?;
-            *url_guard = Some(url);
-        }
-        {
-            let mut id_guard = self
-                .connection_id
-                .lock()
-                .map_err(|_| Self::mutex_poisoned())?;
-            *id_guard = Some(conn_id.0 as u32);
-        }
-        {
-            let mut pool_guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
-            *pool_guard = Some(pool);
-        }
+        let mut url_guard = self.connection_url.lock().await;
+        *url_guard = Some(url);
+
+        let mut id_guard = self.connection_id.lock().await;
+        *id_guard = Some(conn_id.0 as u32);
+
+        let mut pool_guard = self.pool.lock().await;
+        *pool_guard = Some(pool);
 
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<(), AppError> {
         let pool = {
-            let mut pool_guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            let mut pool_guard = self.pool.lock().await;
             pool_guard.take()
         };
         if let Some(pool) = pool {
             pool.close().await;
         }
-        let mut id_guard = self
-            .connection_id
-            .lock()
-            .map_err(|_| Self::mutex_poisoned())?;
+        let mut id_guard = self.connection_id.lock().await;
         *id_guard = None;
-        let mut url_guard = self
-            .connection_url
-            .lock()
-            .map_err(|_| Self::mutex_poisoned())?;
+        let mut url_guard = self.connection_url.lock().await;
         *url_guard = None;
         Ok(())
     }
@@ -445,7 +425,7 @@ impl DbDriver for MySqlDriver {
     async fn execute(&mut self, sql: &str) -> Result<QueryResult, AppError> {
         let start = Instant::now();
         let pool = {
-            let guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            let guard = self.pool.lock().await;
             guard.as_ref().ok_or_else(Self::not_connected)?.clone()
         };
 
@@ -513,7 +493,7 @@ impl DbDriver for MySqlDriver {
 
     async fn get_metadata(&self) -> Result<DatabaseMetadata, AppError> {
         let pool = {
-            let guard = self.pool.lock().map_err(|_| Self::mutex_poisoned())?;
+            let guard = self.pool.lock().await;
             guard.as_ref().ok_or_else(Self::not_connected)?.clone()
         };
 
@@ -559,18 +539,12 @@ impl DbDriver for MySqlDriver {
 
     async fn cancel_query(&self) -> Result<(), AppError> {
         let connection_id = {
-            let id_guard = self
-                .connection_id
-                .lock()
-                .map_err(|_| Self::mutex_poisoned())?;
+            let id_guard = self.connection_id.lock().await;
             id_guard.ok_or_else(Self::not_connected)?
         };
 
         let url = {
-            let url_guard = self
-                .connection_url
-                .lock()
-                .map_err(|_| Self::mutex_poisoned())?;
+            let url_guard = self.connection_url.lock().await;
             url_guard
                 .as_ref()
                 .ok_or_else(|| AppError::connection_err("连接URL不可用", None))?
