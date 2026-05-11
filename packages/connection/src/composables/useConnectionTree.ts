@@ -1,43 +1,55 @@
-import { ref, shallowRef, watch } from 'vue'
+import { ref, shallowRef } from 'vue'
+import { h } from 'vue'
 import type { TreeOption } from 'naive-ui'
+import { NIcon, NTag } from 'naive-ui'
+import { FolderOutline, FolderOpenOutline, LayersOutline } from '@vicons/ionicons5'
+import { useI18n } from 'vue-i18n'
 import { useConnectionStore } from '@linkbase/core/stores/connection'
 import type { Connection } from '@linkbase/core/stores/connection'
-import { getEnhancedMetadata, connect as connectApi, disconnect as disconnectApi, testConnection as testConnectionApi } from '@linkbase/core/api'
+import {
+  getEnhancedMetadata,
+  connect as connectApi,
+  disconnect as disconnectApi,
+  testConnection as testConnectionApi,
+} from '@linkbase/core/api'
 import type { DatabaseMetadata, DatabaseInfo, SchemaInfo } from '@linkbase/core/api'
 import { TREE_NODE_TEMPLATES } from '../config/database-types'
 import type { DriverType } from '../config/database-types'
 import type { TreeOptionWithMeta } from '../types/tree'
 import { buildConnectionNode, setNodeData, getNodeData, buildCategoryChildren } from '../utils/treeUtils'
-import { h } from 'vue'
-import { NIcon, NTag } from 'naive-ui'
-import {
-  FolderOutline, FolderOpenOutline, LayersOutline, FlashOutline,
-  AddOutline, SearchOutline
-} from '@vicons/ionicons5'
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface ContextMenuState {
+  show: boolean
+  x: number
+  y: number
+  items: { key: string; label: string; icon?: string }[]
+  contextNodeKey?: string
+  contextNodeData?: any
+}
+
+// ─── Main Composable ─────────────────────────────────────────────────────────
 
 export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
   openCreateDialog: []
   openEditDialog: [connectionId: string]
   executeSql: [sql: string]
 }>>) {
+  const { t } = useI18n()
   const connectionStore = useConnectionStore()
+
+  // ─── Reactive State ──────────────────────────────────────────────────────
 
   const treeData = ref<TreeOptionWithMeta[]>([])
   const expandedKeys = ref<string[]>([])
   const selectedKeys = ref<string[]>([])
   const searchText = ref('')
   const connectionMetadata = shallowRef<Map<string, DatabaseMetadata>>(new Map())
-const connectingConnections = ref<Set<string>>(new Set())
-const loadingMetadataConnections = ref<Set<string>>(new Set())
+  const connectingConnections = ref<Set<string>>(new Set())
+  const loadingMetadataConnections = ref<Set<string>>(new Set())
 
-  const contextMenu = ref<{
-    show: boolean
-    x: number
-    y: number
-    items: { key: string; label: string; icon?: string }[]
-    contextNodeKey?: string
-    contextNodeData?: any
-  }>({
+  const contextMenu = ref<ContextMenuState>({
     show: false,
     x: 0,
     y: 0,
@@ -45,6 +57,8 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
     contextNodeKey: undefined,
     contextNodeData: undefined,
   })
+
+  // ─── Tree Data Building ──────────────────────────────────────────────────
 
   function refreshTreeData() {
     const data: TreeOptionWithMeta[] = []
@@ -67,6 +81,189 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
     }
     treeData.value = data
   }
+
+  /**
+   * Build tree children from metadata for a given connection.
+   * This shared function eliminates duplication between loadConnectionChildren and refreshConnection.
+   */
+  function buildMetadataTree(connId: string, meta: DatabaseMetadata, driverType: string): TreeOptionWithMeta[] {
+    const template = TREE_NODE_TEMPLATES[driverType as DriverType]
+    if (!template) return []
+
+    const children: TreeOptionWithMeta[] = []
+
+    // Top-level categories (e.g., Users, Roles)
+    if (template.topLevelCategories) {
+      for (const category of template.topLevelCategories) {
+        const catNode: TreeOptionWithMeta = {
+          key: `conn/${connId}/cat/${category.key}`,
+          label: category.label,
+          children: [],
+          prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
+          isLeaf: false,
+        }
+        setNodeData(catNode, {
+          nodeType: 'category',
+          connectionId: connId,
+          categoryKey: category.key,
+        })
+        children.push(catNode)
+      }
+    }
+
+    // Build database/schema structure based on driver type
+    switch (template.rootContainerType) {
+      case 'databases':
+        children.push(buildDatabasesContainer(connId, meta, template))
+        break
+      case 'databases_with_schemas':
+        children.push(buildDatabasesWithSchemasContainer(connId, meta, template))
+        break
+      case 'schemas':
+      case 'flat':
+      default:
+        for (const category of template.categories) {
+          const catNode: TreeOptionWithMeta = {
+            key: `conn/${connId}/cat/${category.key}`,
+            label: category.label,
+            children: [],
+            prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
+            isLeaf: false,
+          }
+          setNodeData(catNode, {
+            nodeType: 'category',
+            connectionId: connId,
+            categoryKey: category.key,
+          })
+          children.push(catNode)
+        }
+        break
+    }
+
+    return children
+  }
+
+  function buildDatabasesContainer(connId: string, meta: DatabaseMetadata, template: any): TreeOptionWithMeta {
+    const databases = meta.databases || []
+    const containerNode: TreeOptionWithMeta = {
+      key: `conn/${connId}/container`,
+      label: template.rootContainerLabel,
+      children: [],
+      prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
+      isLeaf: false,
+    }
+    setNodeData(containerNode, { nodeType: 'rootContainer', connectionId: connId })
+
+    for (const db of databases) {
+      const dbKey = `conn/${connId}/container/db/${db.name}`
+      const dbChildren = template.categories.map((category: any) => {
+        const catNode: TreeOptionWithMeta = {
+          key: `${dbKey}/cat/${category.key}`,
+          label: category.label,
+          children: [],
+          prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
+          isLeaf: false,
+        }
+        setNodeData(catNode, {
+          nodeType: 'category',
+          connectionId: connId,
+          databaseName: db.name,
+          categoryKey: category.key,
+        })
+        return catNode
+      })
+
+      const dbNode: TreeOptionWithMeta = {
+        key: dbKey,
+        label: db.name,
+        children: dbChildren,
+        prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
+        isLeaf: false,
+      }
+      setNodeData(dbNode, { nodeType: 'database', connectionId: connId, databaseName: db.name })
+      containerNode.children!.push(dbNode)
+    }
+
+    return containerNode
+  }
+
+  function buildDatabasesWithSchemasContainer(connId: string, meta: DatabaseMetadata, template: any): TreeOptionWithMeta {
+    const databases = meta.databases || []
+    const containerNode: TreeOptionWithMeta = {
+      key: `conn/${connId}/container`,
+      label: template.rootContainerLabel,
+      children: [],
+      prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
+      isLeaf: false,
+    }
+    setNodeData(containerNode, { nodeType: 'rootContainer', connectionId: connId })
+
+    for (const db of databases) {
+      const dbKey = `conn/${connId}/container/db/${db.name}`
+      const dbChildren: TreeOptionWithMeta[] = []
+
+      for (const schema of (db.schemas || [])) {
+        const schKey = `${dbKey}/schema/${schema.name}`
+        const schChildren = template.categories.map((category: any) => {
+          const catNode: TreeOptionWithMeta = {
+            key: `${schKey}/cat/${category.key}`,
+            label: category.label,
+            children: [],
+            prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
+            isLeaf: false,
+          }
+          setNodeData(catNode, {
+            nodeType: 'category',
+            connectionId: connId,
+            databaseName: db.name,
+            schemaName: schema.name,
+            categoryKey: category.key,
+          })
+          return catNode
+        })
+
+        const schNode: TreeOptionWithMeta = {
+          key: schKey,
+          label: schema.name,
+          children: schChildren,
+          prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
+          isLeaf: false,
+        }
+        setNodeData(schNode, { nodeType: 'schema', connectionId: connId, databaseName: db.name, schemaName: schema.name })
+        dbChildren.push(schNode)
+      }
+
+      const dbNode: TreeOptionWithMeta = {
+        key: dbKey,
+        label: db.name,
+        children: dbChildren,
+        prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
+        isLeaf: false,
+      }
+      setNodeData(dbNode, { nodeType: 'database', connectionId: connId, databaseName: db.name })
+      containerNode.children!.push(dbNode)
+    }
+
+    return containerNode
+  }
+
+  // ─── Tree Node Updates ───────────────────────────────────────────────────
+
+  function updateTreeNode(key: string, updates: Partial<TreeOption>) {
+    function walk(nodes: TreeOption[]): boolean {
+      for (const node of nodes) {
+        if (node.key === key) {
+          Object.assign(node, updates)
+          return true
+        }
+        if (node.children && walk(node.children)) return true
+      }
+      return false
+    }
+    walk(treeData.value as TreeOption[])
+  }
+
+  // ─── Connection Lifecycle ────────────────────────────────────────────────
 
   function initTreeData() {
     refreshTreeData()
@@ -111,20 +308,17 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
     if (!c) return
 
     if (c.status === 'connected') {
-      loadConnectionChildren(connId)
+      await loadConnectionMetadata(connId)
     } else if (c.status === 'connecting') {
       await waitForConnection(connId)
       c = connectionStore.connections.find((x) => x.id === connId)
       if (c?.status === 'connected') {
-        loadConnectionChildren(connId)
+        await loadConnectionMetadata(connId)
       }
     } else {
       const success = await handleConnect(connId)
       if (success) {
-        c = connectionStore.connections.find((x) => x.id === connId)
-        if (c?.status === 'connected') {
-          loadConnectionChildren(connId)
-        }
+        await loadConnectionMetadata(connId)
       }
     }
   }
@@ -138,6 +332,8 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
           resolve()
         }
       }, 100)
+      // Safety timeout to avoid infinite polling
+      setTimeout(() => { clearInterval(interval); resolve() }, 30000)
     })
   }
 
@@ -145,44 +341,24 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
     try {
       await disconnectApi(connId)
       connectionStore.updateConnectionStatus(connId, 'disconnected')
+      connectionMetadata.value.delete(connId)
       if (connectionStore.currentConnectionId === connId) {
         connectionStore.setCurrentConnection(null)
       }
+      // Collapse the disconnected node
+      expandedKeys.value = expandedKeys.value.filter((k) => !k.startsWith(`conn/${connId}`))
     } catch (err) {
       console.error('Disconnect failed:', err)
     }
   }
 
-  async function handleTestConnection(connId: string) {
-    const c = connectionStore.connections.find((x) => x.id === connId)
-    if (!c) return
+  // ─── Metadata Loading (unified) ─────────────────────────────────────────
 
-    try {
-      const result = await testConnectionApi({
-        driver_type: c.driver_type,
-        host: c.host,
-        port: c.port,
-        database: c.database,
-        username: c.username,
-        password: '',
-      })
-      if (result.success) {
-        alert('Connection test successful!')
-      } else {
-        alert(`Connection test failed: ${result.error}`)
-      }
-    } catch (err) {
-      alert(`Connection test failed: ${err}`)
-    }
-  }
-
-  async function loadConnectionChildren(connId: string): Promise<void> {
+  async function loadConnectionMetadata(connId: string): Promise<void> {
     const c = connectionStore.connections.find((x) => x.id === connId)
     if (!c || c.status !== 'connected') return
 
-    if (loadingMetadataConnections.value.has(connId)) {
-      return
-    }
+    if (loadingMetadataConnections.value.has(connId)) return
 
     loadingMetadataConnections.value.add(connId)
     updateTreeNode(`conn/${connId}`, { isLoading: true })
@@ -191,138 +367,9 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
       const meta = await getEnhancedMetadata(connId)
       connectionMetadata.value.set(connId, meta)
 
-      const template = TREE_NODE_TEMPLATES[c.driver_type as DriverType]
-      if (!template) return
-
-      const children: TreeOptionWithMeta[] = []
-
-      if (template.topLevelCategories) {
-        for (const category of template.topLevelCategories) {
-          const catNode: TreeOptionWithMeta = {
-            key: `conn/${connId}/cat/${category.key}`,
-            label: category.label,
-            children: [],
-            prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
-            isLeaf: false,
-          }
-          setNodeData(catNode, {
-            nodeType: 'category',
-            connectionId: connId,
-            categoryKey: category.key,
-          })
-          children.push(catNode)
-        }
-      }
-
-      if (template.rootContainerType === 'databases') {
-        const databases = meta.databases || []
-        const containerNode: TreeOptionWithMeta = {
-          key: `conn/${connId}/container`,
-          label: template.rootContainerLabel,
-          children: [],
-          prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
-          isLeaf: false,
-        }
-        setNodeData(containerNode, { nodeType: 'rootContainer', connectionId: connId })
-        for (const db of databases) {
-          const dbKey = `conn/${connId}/container/db/${db.name}`
-          const dbChildren: TreeOptionWithMeta[] = []
-          for (const category of template.categories) {
-            const catNode: TreeOptionWithMeta = {
-              key: `${dbKey}/cat/${category.key}`,
-              label: category.label,
-              children: [],
-              prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
-              isLeaf: false,
-            }
-            setNodeData(catNode, {
-              nodeType: 'category',
-              connectionId: connId,
-              databaseName: db.name,
-              categoryKey: category.key,
-            })
-            dbChildren.push(catNode)
-          }
-          const dbNode: TreeOptionWithMeta = {
-            key: dbKey,
-            label: db.name,
-            children: dbChildren,
-            prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
-            isLeaf: false,
-          }
-          setNodeData(dbNode, { nodeType: 'database', connectionId: connId, databaseName: db.name })
-          containerNode.children!.push(dbNode)
-        }
-        children.push(containerNode)
-      } else if (template.rootContainerType === 'databases_with_schemas') {
-        const databases = meta.databases || []
-        const containerNode: TreeOptionWithMeta = {
-          key: `conn/${connId}/container`,
-          label: template.rootContainerLabel,
-          children: [],
-          prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
-          isLeaf: false,
-        }
-        setNodeData(containerNode, { nodeType: 'rootContainer', connectionId: connId })
-        for (const db of databases) {
-          const dbKey = `conn/${connId}/container/db/${db.name}`
-          const dbChildren: TreeOptionWithMeta[] = []
-          for (const schema of (db.schemas || [])) {
-            const schKey = `${dbKey}/schema/${schema.name}`
-            const schChildren: TreeOptionWithMeta[] = []
-            for (const category of template.categories) {
-              const catNode: TreeOptionWithMeta = {
-                key: `${schKey}/cat/${category.key}`,
-                label: category.label,
-                children: [],
-                prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
-                isLeaf: false,
-              }
-              setNodeData(catNode, {
-                nodeType: 'category',
-                connectionId: connId,
-                databaseName: db.name,
-                schemaName: schema.name,
-                categoryKey: category.key,
-              })
-              schChildren.push(catNode)
-            }
-            const schNode: TreeOptionWithMeta = {
-              key: schKey,
-              label: schema.name,
-              children: schChildren,
-              prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
-              isLeaf: false,
-            }
-            setNodeData(schNode, { nodeType: 'schema', connectionId: connId, databaseName: db.name, schemaName: schema.name })
-            dbChildren.push(schNode)
-          }
-          const dbNode: TreeOptionWithMeta = {
-            key: dbKey,
-            label: db.name,
-            children: dbChildren,
-            prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
-            isLeaf: false,
-          }
-          setNodeData(dbNode, { nodeType: 'database', connectionId: connId, databaseName: db.name })
-          containerNode.children!.push(dbNode)
-        }
-        children.push(containerNode)
-      } else {
-        const tables = meta.tables || []
-        for (const category of template.categories) {
-          const catNode: TreeOptionWithMeta = {
-            key: `conn/${connId}/cat/${category.key}`,
-            label: category.label,
-            children: [],
-            prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
-            isLeaf: false,
-          }
-          children.push(catNode)
-        }
-      }
-
+      const children = buildMetadataTree(connId, meta, c.driver_type)
       updateTreeNode(`conn/${connId}`, { children, isLoading: false })
+
       if (!expandedKeys.value.includes(`conn/${connId}`)) {
         expandedKeys.value = [...expandedKeys.value, `conn/${connId}`]
       }
@@ -334,7 +381,14 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
     }
   }
 
-  async function loadCategoryChildren(connId: string, containerName: string | undefined, categoryKey: string) {
+  async function refreshConnection(connId: string): Promise<void> {
+    connectionMetadata.value.delete(connId)
+    await loadConnectionMetadata(connId)
+  }
+
+  // ─── Lazy Category Loading ───────────────────────────────────────────────
+
+  function loadCategoryChildren(connId: string, containerName: string | undefined, categoryKey: string) {
     const meta = connectionMetadata.value.get(connId)
     if (!meta) return
 
@@ -346,20 +400,16 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
 
     let category = template.topLevelCategories?.find((cat) => cat.key === categoryKey)
     const isTopLevel = !!category
-
     if (!category) {
       category = template.categories.find((cat) => cat.key === categoryKey)
     }
-
     if (!category) return
 
     let keyPrefix: string
     let db: DatabaseInfo = {} as DatabaseInfo
     let schema: SchemaInfo = {} as SchemaInfo
 
-    if (isTopLevel) {
-      keyPrefix = `conn/${connId}/cat/${categoryKey}`
-    } else if (template.rootContainerType === 'flat') {
+    if (isTopLevel || template.rootContainerType === 'flat') {
       keyPrefix = `conn/${connId}/cat/${categoryKey}`
     } else if (template.rootContainerType === 'databases') {
       keyPrefix = `conn/${connId}/container/db/${containerName}/cat/${categoryKey}`
@@ -386,20 +436,7 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
     }
 
     const tables = meta.tables || []
-    const children = buildCategoryChildrenForTree(categoryKey, connId, db, schema, tables, keyPrefix, meta)
-    updateTreeNode(keyPrefix, { children })
-  }
-
-  function buildCategoryChildrenForTree(
-    categoryKey: string,
-    connId: string,
-    db: DatabaseInfo,
-    schema: SchemaInfo,
-    tables: any[],
-    keyPrefix: string,
-    meta?: DatabaseMetadata
-  ): TreeOptionWithMeta[] {
-    return buildCategoryChildren(
+    const children = buildCategoryChildren(
       { key: categoryKey, label: '' },
       db.name,
       schema.name,
@@ -410,224 +447,53 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
       keyPrefix,
       meta
     )
+    updateTreeNode(keyPrefix, { children })
   }
 
-  async function refreshConnection(connId: string): Promise<void> {
-    const c = connectionStore.connections.find((x) => x.id === connId)
-    if (!c || c.status !== 'connected') return
-
-    if (loadingMetadataConnections.value.has(connId)) {
-      return
-    }
-
-    loadingMetadataConnections.value.add(connId)
-    updateTreeNode(`conn/${connId}`, { isLoading: true })
-
-    try {
-      connectionMetadata.value.delete(connId)
-
-      const meta = await getEnhancedMetadata(connId)
-      connectionMetadata.value.set(connId, meta)
-
-      const template = TREE_NODE_TEMPLATES[c.driver_type as DriverType]
-      if (!template) return
-
-      const children: TreeOptionWithMeta[] = []
-
-      if (template.topLevelCategories) {
-        for (const category of template.topLevelCategories) {
-          const catNode: TreeOptionWithMeta = {
-            key: `conn/${connId}/cat/${category.key}`,
-            label: category.label,
-            children: [],
-            prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
-            isLeaf: false,
-          }
-          setNodeData(catNode, {
-            nodeType: 'category',
-            connectionId: connId,
-            categoryKey: category.key,
-          })
-          children.push(catNode)
-        }
-      }
-
-      if (template.rootContainerType === 'databases') {
-        const databases = meta.databases || []
-        const containerNode: TreeOptionWithMeta = {
-          key: `conn/${connId}/container`,
-          label: template.rootContainerLabel,
-          children: [],
-          prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
-          isLeaf: false,
-        }
-        setNodeData(containerNode, { nodeType: 'rootContainer', connectionId: connId })
-        for (const db of databases) {
-          const dbKey = `conn/${connId}/container/db/${db.name}`
-          const dbChildren: TreeOptionWithMeta[] = []
-          for (const category of template.categories) {
-            const catNode: TreeOptionWithMeta = {
-              key: `${dbKey}/cat/${category.key}`,
-              label: category.label,
-              children: [],
-              prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
-              isLeaf: false,
-            }
-            setNodeData(catNode, {
-              nodeType: 'category',
-              connectionId: connId,
-              databaseName: db.name,
-              categoryKey: category.key,
-            })
-            dbChildren.push(catNode)
-          }
-          const dbNode: TreeOptionWithMeta = {
-            key: dbKey,
-            label: db.name,
-            children: dbChildren,
-            prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
-            isLeaf: false,
-          }
-          setNodeData(dbNode, { nodeType: 'database', connectionId: connId, databaseName: db.name })
-          containerNode.children!.push(dbNode)
-        }
-        children.push(containerNode)
-      } else if (template.rootContainerType === 'databases_with_schemas') {
-        const databases = meta.databases || []
-        const containerNode: TreeOptionWithMeta = {
-          key: `conn/${connId}/container`,
-          label: template.rootContainerLabel,
-          children: [],
-          prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
-          isLeaf: false,
-        }
-        setNodeData(containerNode, { nodeType: 'rootContainer', connectionId: connId })
-        for (const db of databases) {
-          const dbKey = `conn/${connId}/container/db/${db.name}`
-          const dbChildren: TreeOptionWithMeta[] = []
-          for (const schema of (db.schemas || [])) {
-            const schKey = `${dbKey}/schema/${schema.name}`
-            const schChildren: TreeOptionWithMeta[] = []
-            for (const category of template.categories) {
-              const catNode: TreeOptionWithMeta = {
-                key: `${schKey}/cat/${category.key}`,
-                label: category.label,
-                children: [],
-                prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
-                isLeaf: false,
-              }
-              setNodeData(catNode, {
-                nodeType: 'category',
-                connectionId: connId,
-                databaseName: db.name,
-                schemaName: schema.name,
-                categoryKey: category.key,
-              })
-              schChildren.push(catNode)
-            }
-            const schNode: TreeOptionWithMeta = {
-              key: schKey,
-              label: schema.name,
-              children: schChildren,
-              prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
-              isLeaf: false,
-            }
-            setNodeData(schNode, { nodeType: 'schema', connectionId: connId, databaseName: db.name, schemaName: schema.name })
-            dbChildren.push(schNode)
-          }
-          const dbNode: TreeOptionWithMeta = {
-            key: dbKey,
-            label: db.name,
-            children: dbChildren,
-            prefix: () => h(NIcon, null, { default: () => h(LayersOutline) }),
-            isLeaf: false,
-          }
-          setNodeData(dbNode, { nodeType: 'database', connectionId: connId, databaseName: db.name })
-          containerNode.children!.push(dbNode)
-        }
-        children.push(containerNode)
-      } else {
-        const tables = meta.tables || []
-        for (const category of template.categories) {
-          const catNode: TreeOptionWithMeta = {
-            key: `conn/${connId}/cat/${category.key}`,
-            label: category.label,
-            children: [],
-            prefix: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
-            isLeaf: false,
-          }
-          children.push(catNode)
-        }
-      }
-
-      updateTreeNode(`conn/${connId}`, { children, isLoading: false })
-    } catch (err) {
-      console.error('Failed to refresh connection:', err)
-      updateTreeNode(`conn/${connId}`, { isLoading: false })
-    } finally {
-      loadingMetadataConnections.value.delete(connId)
-    }
-  }
-
-  function updateTreeNode(key: string, updates: Partial<TreeOption>) {
-    function walk(nodes: TreeOption[]): boolean {
-      for (const node of nodes) {
-        if (node.key === key) {
-          Object.assign(node, updates)
-          return true
-        }
-        if (node.children && walk(node.children)) return true
-      }
-      return false
-    }
-    walk(treeData.value as TreeOption[])
-  }
+  // ─── Event Handlers ──────────────────────────────────────────────────────
 
   function onExpandedKeysChange(keys: string[]) {
     const newKeys = keys.filter((k) => !expandedKeys.value.includes(k))
     expandedKeys.value = keys
 
     for (const key of newKeys) {
-      if (key.startsWith('conn/')) {
-        const parts = key.replace('conn/', '').split('/')
-        const connId = parts[0]
+      if (!key.startsWith('conn/')) continue
+      const parts = key.replace('conn/', '').split('/')
+      const connId = parts[0]
 
-        if (parts.length === 1) {
-          handleConnectionExpand(connId)
-        } else {
-          const catIndex = parts.indexOf('cat')
-          if (catIndex !== -1 && catIndex + 1 < parts.length) {
-            const categoryKey = parts[catIndex + 1]
-            let containerName: string | undefined
-
-            if (parts.includes('schema') && parts.includes('db')) {
-              const dbIndex = parts.indexOf('db')
-              const schemaIndex = parts.indexOf('schema')
-              if (dbIndex !== -1 && schemaIndex !== -1 && dbIndex + 1 < parts.length && schemaIndex + 1 < parts.length) {
-                containerName = `${parts[dbIndex + 1]}/${parts[schemaIndex + 1]}`
-              }
-            } else if (parts.includes('db')) {
-              const dbIndex = parts.indexOf('db')
-              if (dbIndex !== -1 && dbIndex + 1 < parts.length) {
-                containerName = parts[dbIndex + 1]
-              }
-            } else if (parts.includes('schema')) {
-              const schemaIndex = parts.indexOf('schema')
-              if (schemaIndex !== -1 && schemaIndex + 1 < parts.length) {
-                containerName = parts[schemaIndex + 1]
-              }
-            }
-
-            loadCategoryChildren(connId, containerName, categoryKey)
-          }
+      if (parts.length === 1) {
+        handleConnectionExpand(connId)
+      } else {
+        const catIndex = parts.indexOf('cat')
+        if (catIndex !== -1 && catIndex + 1 < parts.length) {
+          const categoryKey = parts[catIndex + 1]
+          const containerName = resolveContainerName(parts)
+          loadCategoryChildren(connId, containerName, categoryKey)
         }
       }
     }
   }
 
+  /** Extract db/schema container path from key parts */
+  function resolveContainerName(parts: string[]): string | undefined {
+    const dbIndex = parts.indexOf('db')
+    const schemaIndex = parts.indexOf('schema')
+
+    if (dbIndex !== -1 && schemaIndex !== -1 && dbIndex + 1 < parts.length && schemaIndex + 1 < parts.length) {
+      return `${parts[dbIndex + 1]}/${parts[schemaIndex + 1]}`
+    } else if (dbIndex !== -1 && dbIndex + 1 < parts.length) {
+      return parts[dbIndex + 1]
+    } else if (schemaIndex !== -1 && schemaIndex + 1 < parts.length) {
+      return parts[schemaIndex + 1]
+    }
+    return undefined
+  }
+
   function onSelectedKeysChange(keys: string[]) {
     selectedKeys.value = keys
   }
+
+  // ─── Context Menu ────────────────────────────────────────────────────────
 
   function onPanelContextMenu(e: MouseEvent) {
     contextMenu.value = {
@@ -635,8 +501,8 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
       x: e.clientX,
       y: e.clientY,
       items: [
-        { key: 'newConnection', label: '新建连接', icon: 'Add' },
-        { key: 'newFolder', label: '新建分组', icon: 'Folder' },
+        { key: 'newConnection', label: t('connection.newConnection') },
+        { key: 'newFolder', label: t('contextMenu.newFolder') },
       ],
       contextNodeKey: undefined,
       contextNodeData: undefined,
@@ -651,33 +517,33 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
 
     if (nodeData?.nodeType === 'folder') {
       items.push(
-        { key: 'renameFolder', label: '重命名' },
-        { key: 'deleteFolder', label: '删除' }
+        { key: 'renameFolder', label: t('contextMenu.rename') },
+        { key: 'deleteFolder', label: t('contextMenu.delete') },
       )
     } else if (nodeData?.nodeType === 'connection') {
       const conn = connectionStore.connections.find((c) => c.id === nodeData.connectionId)
       if (conn?.status === 'connected') {
         items.push(
-          { key: 'connDisconnect', label: '断开连接' },
-          { key: 'connRefresh', label: '刷新' },
-          { key: 'connClone', label: '克隆连接' }
+          { key: 'connDisconnect', label: t('contextMenu.disconnect') },
+          { key: 'connRefresh', label: t('contextMenu.refresh') },
+          { key: 'connClone', label: t('contextMenu.clone') },
         )
       } else {
         items.push(
-          { key: 'connConnect', label: '连接' },
-          { key: 'connEdit', label: '编辑' },
-          { key: 'connClone', label: '克隆连接' },
-          { key: 'connTest', label: '测试连接' }
+          { key: 'connConnect', label: t('contextMenu.connect') },
+          { key: 'connEdit', label: t('contextMenu.edit') },
+          { key: 'connClone', label: t('contextMenu.clone') },
+          { key: 'connTest', label: t('contextMenu.testConnection') },
         )
       }
-      items.push({ key: 'connDelete', label: '删除连接' })
+      items.push({ key: 'connDelete', label: t('contextMenu.deleteConnection') })
     } else if (nodeData?.nodeType === 'table' || nodeData?.nodeType === 'view' || nodeData?.nodeType === 'materializedView') {
       items.push(
-        { key: 'generateSelect', label: '生成 SELECT' },
-        { key: 'copyTableName', label: '复制表名' }
+        { key: 'generateSelect', label: t('contextMenu.generateSelect') },
+        { key: 'copyTableName', label: t('contextMenu.copyName') },
       )
     } else if (nodeData?.nodeType === 'function' || nodeData?.nodeType === 'procedure') {
-      items.push({ key: 'copyName', label: '复制名称' })
+      items.push({ key: 'copyName', label: t('contextMenu.copyName') })
     }
 
     contextMenu.value = {
@@ -729,15 +595,12 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
         if (nodeData?.connectionId) handleTestConnection(nodeData.connectionId)
         break
       case 'generateSelect': {
-        const name = nodeData?.schemaName
-          ? `${nodeData.schemaName}.${nodeData?.tableName || ''}`
-          : (nodeData?.tableName || '')
-        if (name) emit('executeSql', `SELECT * FROM ${name} LIMIT 100`)
+        const tableName = nodeData?.tableName || ''
+        const qualifiedName = nodeData?.schemaName ? `${nodeData.schemaName}.${tableName}` : tableName
+        if (qualifiedName) emit('executeSql', `SELECT * FROM ${qualifiedName} LIMIT 100`)
         break
       }
       case 'copyTableName':
-        if (nodeData?.tableName) navigator.clipboard.writeText(nodeData.tableName)
-        break
       case 'copyName':
         if (nodeData?.tableName) navigator.clipboard.writeText(nodeData.tableName)
         break
@@ -745,6 +608,8 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
 
     contextMenu.value.show = false
   }
+
+  // ─── Double Click Handler ────────────────────────────────────────────────
 
   function handleNodeDblClick(node: TreeOption) {
     const nodeData = getNodeData(node)
@@ -760,22 +625,17 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
           expandedKeys.value = expandedKeys.value.filter((k) => k !== key)
         }
       }
-    } else if (nodeData.nodeType === 'table') {
-      const name = nodeData.schemaName
-        ? `${nodeData.schemaName}.${nodeData.tableName}`
-        : (nodeData.tableName || '')
-      if (name) emit('executeSql', `SELECT * FROM ${name} LIMIT 100`)
-    } else if (nodeData.nodeType === 'view' || nodeData.nodeType === 'materializedView') {
-      const name = nodeData.schemaName
-        ? `${nodeData.schemaName}.${nodeData.tableName}`
-        : (nodeData.tableName || '')
-      if (name) emit('executeSql', `SELECT * FROM ${name} LIMIT 100`)
+    } else if (nodeData.nodeType === 'table' || nodeData.nodeType === 'view' || nodeData.nodeType === 'materializedView') {
+      const tableName = nodeData.tableName || ''
+      const qualifiedName = nodeData.schemaName ? `${nodeData.schemaName}.${tableName}` : tableName
+      if (qualifiedName) emit('executeSql', `SELECT * FROM ${qualifiedName} LIMIT 100`)
     }
   }
 
+  // ─── Drag & Drop ────────────────────────────────────────────────────────
+
   function allowDrop({ node, dropPosition }: { node: TreeOption; dropPosition: 'before' | 'inside' | 'after'; phase: 'drag' | 'drop' }) {
     const targetData = getNodeData(node)
-
     if (targetData?.nodeType === 'folder' && dropPosition === 'inside') return true
     if ((targetData?.nodeType === 'connection' || targetData?.nodeType === 'folder') && dropPosition !== 'inside') return true
     return false
@@ -783,23 +643,23 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
 
   function onDrop({ node: dropNode, dragNode, dropPosition }: { node: TreeOption; dragNode: TreeOption; dropPosition: 'before' | 'inside' | 'after'; event: DragEvent }) {
     const dragKey = String(dragNode.key ?? '')
+    if (!dragKey.startsWith('conn/')) return
 
-    if (dragKey.startsWith('conn/')) {
-      const connId = dragKey.replace('conn/', '')
-      if (!connId) return
+    const connId = dragKey.replace('conn/', '')
+    if (!connId) return
 
-      const dropData = getNodeData(dropNode)
-
-      if (dropData?.nodeType === 'folder' && dropPosition === 'inside') {
-        const folderId = String(dropNode.key).replace('folder/', '')
-        connectionStore.moveToFolder(connId, folderId)
-        refreshTreeData()
-      }
+    const dropData = getNodeData(dropNode)
+    if (dropData?.nodeType === 'folder' && dropPosition === 'inside') {
+      const folderId = String(dropNode.key).replace('folder/', '')
+      connectionStore.moveToFolder(connId, folderId)
+      refreshTreeData()
     }
   }
 
+  // ─── CRUD Operations ─────────────────────────────────────────────────────
+
   function addFolder() {
-    const name = prompt('分组名称:')
+    const name = prompt(t('contextMenu.folderNamePrompt'))
     if (!name?.trim()) return
     connectionStore.addFolder(name.trim())
   }
@@ -807,7 +667,7 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
   function renameFolder(nodeKey?: string) {
     if (!nodeKey) return
     const folderId = nodeKey.replace('folder/', '')
-    const name = prompt('新名称:')
+    const name = prompt(t('contextMenu.renamePrompt'))
     if (name?.trim()) connectionStore.renameFolder(folderId, name.trim())
   }
 
@@ -818,27 +678,45 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
   }
 
   function deleteConnection(connId: string) {
-    if (confirm('确定要删除这个连接吗？')) {
+    if (confirm(t('contextMenu.confirmDelete'))) {
       connectionStore.removeConnection(connId)
     }
   }
 
   function handleCloneConnection(connId: string) {
-    const conn = connectionStore.connections.find((c) => c.id === connId)
-    if (!conn) return
-
-    const newConn = {
-      ...conn,
-      id: `${conn.id}-clone`,
-      name: `${conn.name} (克隆)`,
-    }
-    connectionStore.addConnection(newConn)
+    connectionStore.cloneConnection(connId)
   }
+
+  async function handleTestConnection(connId: string) {
+    const c = connectionStore.connections.find((x) => x.id === connId)
+    if (!c) return
+
+    try {
+      const result = await testConnectionApi({
+        driver_type: c.driver_type,
+        host: c.host,
+        port: c.port,
+        database: c.database,
+        username: c.username,
+        password: '',
+      })
+      if (result.success) {
+        alert(t('connection.testSuccess', { version: result.server_version, latency: result.latency_ms.toFixed(0) }))
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      alert(t('connection.testFail', { message: msg }))
+    }
+  }
+
+  // ─── Node Props ──────────────────────────────────────────────────────────
 
   const nodeProps = (node: TreeOption) => ({
     shouldExpand: false,
     'on-contextmenu': (e: MouseEvent) => onNodeContextMenu(e, node),
   })
+
+  // ─── Public API ──────────────────────────────────────────────────────────
 
   return {
     treeData,
@@ -848,6 +726,7 @@ const loadingMetadataConnections = ref<Set<string>>(new Set())
     contextMenu,
     nodeProps,
     initTreeData,
+    refreshConnection,
     onExpandedKeysChange,
     onSelectedKeysChange,
     onPanelContextMenu,
