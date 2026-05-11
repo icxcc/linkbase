@@ -1,218 +1,84 @@
-# ConnectionTree 组件重构方案
+# ConnectionTree 模块优化 - 产品需求文档
 
 ## Overview
-
-### 问题分析
-
-当前 `ConnectionTree.vue` 组件存在以下问题：
-
-1. **代码组织结构混乱**：函数分散，没有清晰的分组，难以维护
-2. **职责过重**：单个组件承担了树渲染、连接管理、元数据加载、上下文菜单等多个职责
-3. **重复代码**：`loadConnectionChildren` 和 `refreshConnection` 存在大量重复逻辑
-4. **类型定义分散**：类型定义和业务逻辑混在一起
-5. **状态管理不清晰**：组件内部状态过多，难以追踪和测试
-6. **错误处理不完善**：缺少统一的错误处理机制
-7. **可测试性差**：函数相互依赖紧密，难以单独测试
-
-### 重构目标
-
-1. **模块化拆分**：将组件拆分为多个职责单一的模块
-2. **清晰的架构分层**：UI层、业务逻辑层、状态管理层分离
-3. **可测试性**：核心逻辑可独立测试
-4. **可维护性**：代码结构清晰，易于理解和修改
-5. **符合项目规范**：遵循 LinkBase 编码规范
-
----
+- **Summary**: 修复 ConnectionTree 组件中展开未连接节点时没有正确调用接口的问题，以及加载元数据时缺少 loading 状态显示的问题
+- **Purpose**: 确保连接树节点在展开时能够正确连接数据库并显示加载状态，提升用户体验
+- **Target Users**: 使用连接树导航数据库结构的用户
 
 ## Goals
-
-- 将 ConnectionTree 组件重构为模块化、可维护的代码结构
-- 提取核心业务逻辑到 composable
-- 统一类型定义
-- 添加完善的错误处理
-- 提高代码可测试性
+- 修复展开未连接节点时正确调用连接接口
+- 确保加载元数据时显示 loading 状态
+- 防止重复连接请求
+- 添加错误处理和状态回滚
 
 ## Non-Goals (Out of Scope)
+- 修改数据库驱动实现
+- 改变连接树的整体结构设计
+- 修改其他组件的功能
 
-- 不改变现有功能和交互行为
-- 不修改后端 API
-- 不改变 UI 外观样式
+## Background & Context
+根据项目计划文档，当前存在两个主要问题：
+1. 展开未连接节点时没有调用接口
+2. 加载元数据时没有 loading 状态
 
----
+当前代码位于 `packages/connection/src/composables/useConnectionTree.ts`，需要对以下函数进行优化：
+- `handleConnect`
+- `handleConnectionExpand`
+- `loadConnectionChildren`
 
-## 架构设计
+## Functional Requirements
+- **FR-1**: 展开未连接的数据库连接节点时，应自动调用连接接口
+- **FR-2**: 连接过程中应显示连接状态（connecting）
+- **FR-3**: 加载元数据时应使用 n-tree 原生懒加载状态显示 loading 图标
+- **FR-4**: 应防止重复的连接请求
+- **FR-5**: 连接或加载失败时应正确处理错误并回滚状态
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    ConnectionTree.vue (UI层)                │
-│  - 树渲染                                                    │
-│  - 事件监听                                                  │
-│  - 上下文菜单渲染                                             │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│              useConnectionTree.ts (业务逻辑层)               │
-│  - 连接状态管理                                              │
-│  - 元数据加载逻辑                                            │
-│  - 节点展开/收起逻辑                                         │
-│  - 上下文菜单逻辑                                            │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                connectionStore (状态管理层)                  │
-│  - 连接列表状态                                              │
-│  - 当前连接状态                                              │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    API层 (core/api)                         │
-│  - connect, disconnect, getEnhancedMetadata                 │
-└─────────────────────────────────────────────────────────────┘
-```
+## Non-Functional Requirements
+- **NFR-1**: 连接状态更新必须使用前端的 `connId` 而非后端的 `backendId`
+- **NFR-2**: 错误处理应记录日志并保持界面响应
+- **NFR-3**: 状态回滚应确保界面一致性
 
----
+## Constraints
+- **Technical**: Vue 3 Composition API, TypeScript, Naive UI
+- **Dependencies**: @linkbase/core/stores/connection, @linkbase/core/api
 
-## 功能模块划分
+## Assumptions
+- 连接API (`connectApi`) 已正确实现
+- 状态管理 (`connectionStore`) 已正确配置
+- 树节点更新机制 (`updateTreeNode`) 正常工作
 
-| 模块 | 职责 | 状态 |
-|------|------|------|
-| TreeRenderer | 树节点渲染、图标显示 | 纯函数 |
-| ConnectionManager | 连接状态管理、连接/断开操作 | Composable |
-| MetadataLoader | 元数据加载、缓存管理 | Composable |
-| ContextMenuHandler | 上下文菜单逻辑 | Composable |
-| TreeNodeBuilder | 节点数据构建 | 纯函数 |
+## Acceptance Criteria
 
----
+### AC-1: 展开未连接节点触发连接
+- **Given**: 用户在连接树中点击展开一个未连接的数据库节点
+- **When**: 节点状态为 `disconnected`
+- **Then**: 应自动调用连接接口并显示连接状态
+- **Verification**: `human-judgment`
 
-## 类型定义规划
+### AC-2: 连接过程显示 connecting 状态
+- **Given**: 正在进行数据库连接
+- **When**: 连接请求已发出但未完成
+- **Then**: 节点应显示 connecting 状态图标/样式
+- **Verification**: `human-judgment`
 
-### 统一类型文件
+### AC-3: 加载元数据显示原生 loading 状态
+- **Given**: 连接成功后加载数据库元数据
+- **When**: 元数据请求已发出但未完成
+- **Then**: 应使用 n-tree 原生 `isLoading` 属性显示 loading 图标
+- **Verification**: `human-judgment`
 
-创建 `packages/connection/src/types/tree.ts`：
+### AC-4: 防止重复连接请求
+- **Given**: 用户快速多次点击展开同一节点
+- **When**: 节点状态为 `connecting`
+- **Then**: 后续的连接请求应被忽略
+- **Verification**: `programmatic`
 
-```typescript
-export type TreeNodeType = 
-  | 'folder' 
-  | 'connection' 
-  | 'rootContainer' 
-  | 'database' 
-  | 'schema' 
-  | 'category' 
-  | 'table' 
-  | 'view' 
-  | 'materializedView' 
-  | 'function' 
-  | 'procedure' 
-  | 'sequence' 
-  | 'index' 
-  | 'user' 
-  | 'column' 
-  | 'trigger' 
-  | 'event' 
-  | 'role' 
-  | 'tablespace'
-
-export interface TreeNodeData {
-  nodeType: TreeNodeType
-  connectionId?: string
-  driverType?: string
-  databaseName?: string
-  schemaName?: string
-  tableName?: string
-  columnName?: string
-  categoryKey?: string
-}
-
-export interface TreeOptionWithMeta extends TreeOption {
-  __treeNodeData__?: TreeNodeData
-}
-
-export interface ConnectionTreeNode {
-  connId: string
-  expanded: boolean
-  loading: boolean
-  children?: TreeOptionWithMeta[]
-}
-```
-
----
-
-## 重构步骤
-
-### Step 1: 提取类型定义
-
-- 创建 `packages/connection/src/types/tree.ts`
-- 将所有类型定义迁移到新文件
-
-### Step 2: 提取纯函数工具
-
-- 创建 `packages/connection/src/utils/treeUtils.ts`
-- 提取 `setNodeData`, `getNodeData`, `getStatusColor`, `buildConnectionNode`, `buildCategoryChildren`
-
-### Step 3: 创建 Composable
-
-- 创建 `packages/connection/src/composables/useConnectionTree.ts`
-- 封装连接状态管理、元数据加载、事件处理逻辑
-
-### Step 4: 重构主组件
-
-- 更新 `ConnectionTree.vue`
-- 移除业务逻辑，保留 UI 渲染和事件绑定
-
----
-
-## 代码规范遵循
-
-1. **Vue 规范**：使用 Composition API，`<script setup>`
-2. **类型规范**：禁止 `any`，使用明确类型定义
-3. **组件职责**：单组件不超过 500 行，只负责 UI 渲染
-4. **状态管理**：复杂逻辑提取到 composable
-5. **错误处理**：统一错误处理机制
-
----
-
-## 风险评估
-
-| 风险 | 级别 | 缓解措施 |
-|------|------|----------|
-| 重构引入 Bug | 高 | 保留原有测试，添加新测试 |
-| 类型不兼容 | 中 | 严格类型检查 |
-| 性能影响 | 低 | 保持原有逻辑，仅重构结构 |
-
----
-
-## 验收标准
-
-### AC-1: 代码结构清晰
-- **Given**: 开发者查看代码
-- **When**: 浏览 ConnectionTree 相关文件
-- **Then**: 能够清晰理解代码组织结构
-- **Verification**: human-judgment
-
-### AC-2: 功能保持不变
-- **Given**: 重构完成后
-- **When**: 执行连接、展开、查询等操作
-- **Then**: 所有功能正常工作
-- **Verification**: programmatic
-
-### AC-3: 代码行数减少
-- **Given**: 重构前后对比
-- **When**: 统计 ConnectionTree.vue 行数
-- **Then**: 组件代码行数减少至少 30%
-- **Verification**: programmatic
-
-### AC-4: 可测试性提升
-- **Given**: 重构完成后
-- **When**: 编写单元测试
-- **Then**: 核心逻辑可独立测试
-- **Verification**: human-judgment
-
----
+### AC-5: 连接失败正确回滚状态
+- **Given**: 数据库连接失败
+- **When**: 连接API返回错误
+- **Then**: 节点状态应回滚到 `disconnected` 并显示错误状态
+- **Verification**: `human-judgment`
 
 ## Open Questions
-
-- 是否需要保留现有的测试文件结构？
-- 是否需要添加新的测试用例？
+- [ ] 是否需要添加连接超时处理？
+- [ ] 是否需要添加重试机制？

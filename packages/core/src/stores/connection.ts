@@ -210,11 +210,6 @@ export const useConnectionStore = defineStore('connection', () => {
     if (conn) conn.status = status
   }
 
-  function updateConnectionBackendId(id: string, backendId: string) {
-    const conn = connections.value.find((c) => c.id === id)
-    if (conn) conn.id = backendId
-  }
-
   function updateConnection(id: string, updates: Partial<Connection>) {
     const conn = connections.value.find((c) => c.id === id)
     if (!conn) return
@@ -315,7 +310,6 @@ export const useConnectionStore = defineStore('connection', () => {
     setCurrentConnection,
     updateConnectionStatus,
     updateConnection,
-    updateConnectionBackendId,
     addFolder,
     removeFolder,
     renameFolder,

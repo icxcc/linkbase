@@ -27,6 +27,8 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
   const selectedKeys = ref<string[]>([])
   const searchText = ref('')
   const connectionMetadata = shallowRef<Map<string, DatabaseMetadata>>(new Map())
+const connectingConnections = ref<Set<string>>(new Set())
+const loadingMetadataConnections = ref<Set<string>>(new Set())
 
   const contextMenu = ref<{
     show: boolean
@@ -84,10 +86,11 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
       return true
     }
 
-    if (c.status === 'connecting') {
+    if (c.status === 'connecting' || connectingConnections.value.has(connId)) {
       return false
     }
 
+    connectingConnections.value.add(connId)
     connectionStore.updateConnectionStatus(connId, 'connecting')
     try {
       await connectApi(connId)
@@ -98,6 +101,8 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
       connectionStore.updateConnectionStatus(connId, 'error')
       console.error('Connection failed:', err)
       return false
+    } finally {
+      connectingConnections.value.delete(connId)
     }
   }
 
@@ -108,7 +113,11 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
     if (c.status === 'connected') {
       loadConnectionChildren(connId)
     } else if (c.status === 'connecting') {
-      return
+      await waitForConnection(connId)
+      c = connectionStore.connections.find((x) => x.id === connId)
+      if (c?.status === 'connected') {
+        loadConnectionChildren(connId)
+      }
     } else {
       const success = await handleConnect(connId)
       if (success) {
@@ -118,6 +127,18 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
         }
       }
     }
+  }
+
+  async function waitForConnection(connId: string): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        const c = connectionStore.connections.find((x) => x.id === connId)
+        if (c && c.status !== 'connecting') {
+          clearInterval(interval)
+          resolve()
+        }
+      }, 100)
+    })
   }
 
   async function handleDisconnect(connId: string) {
@@ -159,14 +180,12 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
     const c = connectionStore.connections.find((x) => x.id === connId)
     if (!c || c.status !== 'connected') return
 
-    const loadingNode: TreeOptionWithMeta = {
-      key: `conn/${connId}/loading`,
-      label: 'Loading...',
-      isLeaf: true,
-      prefix: () => h(NIcon, null, { default: () => h(FlashOutline) }),
+    if (loadingMetadataConnections.value.has(connId)) {
+      return
     }
-    setNodeData(loadingNode, { nodeType: 'category', connectionId: connId })
-    updateTreeNode(`conn/${connId}`, { children: [loadingNode] })
+
+    loadingMetadataConnections.value.add(connId)
+    updateTreeNode(`conn/${connId}`, { isLoading: true })
 
     try {
       const meta = await getEnhancedMetadata(connId)
@@ -303,12 +322,15 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
         }
       }
 
-      updateTreeNode(`conn/${connId}`, { children })
+      updateTreeNode(`conn/${connId}`, { children, isLoading: false })
       if (!expandedKeys.value.includes(`conn/${connId}`)) {
         expandedKeys.value = [...expandedKeys.value, `conn/${connId}`]
       }
     } catch (err) {
       console.error('Failed to load metadata:', err)
+      updateTreeNode(`conn/${connId}`, { isLoading: false })
+    } finally {
+      loadingMetadataConnections.value.delete(connId)
     }
   }
 
@@ -393,6 +415,13 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
   async function refreshConnection(connId: string): Promise<void> {
     const c = connectionStore.connections.find((x) => x.id === connId)
     if (!c || c.status !== 'connected') return
+
+    if (loadingMetadataConnections.value.has(connId)) {
+      return
+    }
+
+    loadingMetadataConnections.value.add(connId)
+    updateTreeNode(`conn/${connId}`, { isLoading: true })
 
     try {
       connectionMetadata.value.delete(connId)
@@ -531,9 +560,12 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
         }
       }
 
-      updateTreeNode(`conn/${connId}`, { children })
+      updateTreeNode(`conn/${connId}`, { children, isLoading: false })
     } catch (err) {
       console.error('Failed to refresh connection:', err)
+      updateTreeNode(`conn/${connId}`, { isLoading: false })
+    } finally {
+      loadingMetadataConnections.value.delete(connId)
     }
   }
 
@@ -723,6 +755,7 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
         const key = `conn/${nodeData.connectionId}`
         if (!expandedKeys.value.includes(key)) {
           expandedKeys.value = [...expandedKeys.value, key]
+          handleConnectionExpand(nodeData.connectionId)
         } else {
           expandedKeys.value = expandedKeys.value.filter((k) => k !== key)
         }

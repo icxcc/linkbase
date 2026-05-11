@@ -303,9 +303,9 @@ async function handleSave() {
       await saveConnections(updatedConnections as any)
       
       // 然后用连接 ID 进行连接
-      const backendId = await connect(props.connectionId)
-      connectionStore.updateConnectionStatus(backendId, 'connected')
-      connectionStore.setCurrentConnection(backendId)
+      await connect(props.connectionId)
+      connectionStore.updateConnectionStatus(props.connectionId, 'connected')
+      connectionStore.setCurrentConnection(props.connectionId)
     } else {
       // 新建模式：先保存连接信息（含密码）
       const newConnections = [
@@ -315,11 +315,11 @@ async function handleSave() {
       await saveConnections(newConnections as any)
       
       // 然后用保存的连接 ID 进行连接
-      const backendId = await connect(connectionToSave.id)
+      await connect(connectionToSave.id)
       
       // 更新 Store（不含密码）
       connectionStore.addConnection({
-        id: backendId,
+        id: connectionToSave.id,
         name: connectionToSave.name,
         host: connectionToSave.host,
         port: connectionToSave.port,
@@ -330,12 +330,10 @@ async function handleSave() {
         connection_string: connectionToSave.connection_string,
         options: connectionToSave.options,
         folderId: connectionToSave.folder_id,
-        status: 'idle',
+        status: 'connected',
       })
       
-      connectionStore.updateConnectionBackendId(connectionToSave.id, backendId)
-      connectionStore.updateConnectionStatus(backendId, 'connected')
-      connectionStore.setCurrentConnection(backendId)
+      connectionStore.setCurrentConnection(connectionToSave.id)
     }
     emit('close')
   } catch (err) {

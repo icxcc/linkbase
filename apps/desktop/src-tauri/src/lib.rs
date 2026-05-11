@@ -1,32 +1,13 @@
-use linkbase_core::{ConnectionManager, StoredConnection, StoredFolder, save_connections, load_connections_without_password, get_connection_by_id, save_folders, load_folders};
+use linkbase_core::{ConnectionManager, StoredConnection, StoredFolder, save_connections, load_connections_without_password, save_folders, load_folders};
 use db_common::{AppError, ConnectionConfig, DatabaseMetadata, QueryChunk, QueryResult, TestResult};
 use tauri::State;
 
 #[tauri::command]
 async fn connect(
     state: State<'_, ConnectionManager>,
-    config_or_id: serde_json::Value,
-) -> Result<String, AppError> {
-    let config = if let Some(id) = config_or_id.as_str() {
-        // 传入的是连接 ID，从存储中读取完整配置
-        let stored_conn = get_connection_by_id(id)?;
-        ConnectionConfig {
-            driver_type: stored_conn.driver_type,
-            host: stored_conn.host,
-            port: stored_conn.port,
-            user: stored_conn.user,
-            password: stored_conn.password,
-            database: stored_conn.database,
-            connection_string: stored_conn.connection_string,
-            options: stored_conn.options.unwrap_or_default(),
-        }
-    } else {
-        // 传入的是完整配置对象
-        serde_json::from_value::<ConnectionConfig>(config_or_id)
-            .map_err(|e| AppError::other(format!("连接配置无效: {}", e)))?
-    };
-    
-    state.connect(config).await
+    id: String,
+) -> Result<(), AppError> {
+    state.connect(&id).await
 }
 
 #[tauri::command]

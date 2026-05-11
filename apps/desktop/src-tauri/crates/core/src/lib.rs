@@ -20,7 +20,20 @@ impl ConnectionManager {
         }
     }
 
-    pub async fn connect(&self, config: ConnectionConfig) -> Result<String, AppError> {
+    pub async fn connect(&self, id: &str) -> Result<(), AppError> {
+        let stored_conn = get_connection_by_id(id)?;
+        
+        let config = ConnectionConfig {
+            driver_type: stored_conn.driver_type,
+            host: stored_conn.host,
+            port: stored_conn.port,
+            user: stored_conn.user,
+            password: stored_conn.password,
+            database: stored_conn.database,
+            connection_string: stored_conn.connection_string,
+            options: stored_conn.options.unwrap_or_default(),
+        };
+
         let mut driver: Box<dyn DbDriver> = match config.driver_type.as_str() {
             "sqlite" => Box::new(SqliteDriver::new()),
             "mysql" => Box::new(MySqlDriver::new()),
@@ -31,10 +44,9 @@ impl ConnectionManager {
         };
 
         driver.connect(&config).await?;
-        let id = uuid::Uuid::new_v4().to_string();
         self.connections
-            .insert(id.clone(), Arc::new(Mutex::new(driver)));
-        Ok(id)
+            .insert(id.to_string(), Arc::new(Mutex::new(driver)));
+        Ok(())
     }
 
     pub async fn disconnect(&self, id: &str) -> Result<(), AppError> {

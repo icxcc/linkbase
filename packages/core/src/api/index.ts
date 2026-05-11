@@ -54,8 +54,8 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
     return tauriInvoke<T>(cmd, args)
 }
 
-export async function connect(configOrId: ConnectionConfig | ConnectionId): Promise<ConnectionId> {
-    return invoke<ConnectionId>('connect', { configOrId })
+export async function connect(id: ConnectionId): Promise<void> {
+    await invoke('connect', { id })
 }
 
 export async function disconnect(id: ConnectionId): Promise<void> {

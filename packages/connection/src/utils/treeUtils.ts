@@ -33,8 +33,6 @@ export function getStatusColor(status: string): string {
 }
 
 export function buildConnectionNode(c: Connection): TreeOptionWithMeta {
-  const connected = c.status === 'connected'
-
   const node: TreeOptionWithMeta = {
     key: `conn/${c.id}`,
     label: c.name,
@@ -50,10 +48,7 @@ export function buildConnectionNode(c: Connection): TreeOptionWithMeta {
       }
     }),
     isLeaf: false,
-  }
-
-  if (connected) {
-    node.children = []
+    children: [],
   }
 
   setNodeData(node, {
