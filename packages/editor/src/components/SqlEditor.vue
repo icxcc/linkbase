@@ -6,6 +6,7 @@ import { LButton } from '@linkbase/components'
 import { useConnectionStore } from '@linkbase/core/stores/connection'
 import { useEditorStore } from '@linkbase/core/stores/editor'
 import { useAppStore } from '@linkbase/core/stores/app'
+import { switchDatabase } from '@linkbase/core/api'
 import { useMonaco } from '../composables/useMonaco'
 import EditorTabs from './EditorTabs.vue'
 import SessionSelector from './SessionSelector.vue'
@@ -128,8 +129,16 @@ watch(
   { deep: true },
 )
 
-function handleExecuteAll() {
+async function ensureDatabase() {
+  const tab = editorStore.tabs.find((t) => t.id === editorStore.activeTabId)
+  if (tab?.session?.connectionId && tab.session.database) {
+    await switchDatabase(tab.session.connectionId, tab.session.database).catch(() => {})
+  }
+}
+
+async function handleExecuteAll() {
   if (!activeConnectionName.value || !activeTab.value?.sql.trim()) return
+  await ensureDatabase()
   emit('execute', activeTab.value.sql.trim())
 }
 
@@ -138,7 +147,9 @@ function handleExecuteSelection() {
   if (!editor) return
   const selection = editor.getModel()!.getValueInRange(editor.getSelection()!)
   if (selection.trim()) {
-    emit('execute', selection.trim())
+    ensureDatabase().then(() => {
+      emit('execute', selection.trim())
+    })
   }
 }
 
@@ -146,9 +157,11 @@ function handleExecuteStatement() {
   const editor = getEditor()
   if (!editor) return
   const statements = editor.getValue().split(';').map((s: string) => s.trim()).filter(Boolean)
-  for (const stmt of statements) {
-    emit('execute', stmt)
-  }
+  ensureDatabase().then(() => {
+    for (const stmt of statements) {
+      emit('execute', stmt)
+    }
+  })
 }
 
 async function handleFormat() {

@@ -70,6 +70,23 @@ impl ConnectionManager {
         driver.execute(sql).await
     }
 
+    pub async fn execute_with_context(&self, id: &str, sql: &str, database: Option<&str>) -> Result<QueryResult, AppError> {
+        let driver_arc = self
+            .connections
+            .get(id)
+            .ok_or_else(|| AppError::not_found(format!("连接 {}", id)))?
+            .clone();
+
+        let mut driver = driver_arc.lock().await;
+        // Switch database within the same lock to ensure atomicity
+        if let Some(db) = database {
+            if !db.is_empty() {
+                driver.switch_database(db).await?;
+            }
+        }
+        driver.execute(sql).await
+    }
+
     pub async fn execute_streaming(
         &self,
         id: &str,

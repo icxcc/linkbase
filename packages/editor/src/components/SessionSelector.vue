@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConnectionStore } from '@linkbase/core/stores/connection'
 import { useEditorStore } from '@linkbase/core/stores/editor'
-import { getDatabases, getSchemas } from '@linkbase/core/api'
+import { getDatabases, getSchemas, switchDatabase } from '@linkbase/core/api'
 import { TREE_NODE_TEMPLATES } from '@linkbase/connection/config/database-types'
 import type { DriverType } from '@linkbase/core/api'
 
@@ -97,6 +97,12 @@ function onDatabaseChange(db: string) {
     database: db || null,
     schema: null,
   })
+  // Actually switch database on the backend connection
+  if (db && session.value?.connectionId) {
+    switchDatabase(session.value.connectionId, db).catch(() => {
+      // silently ignore - error will surface when executing SQL
+    })
+  }
 }
 
 function onSchemaChange(schema: string) {
