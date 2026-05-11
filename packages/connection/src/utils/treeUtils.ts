@@ -38,15 +38,12 @@ export function buildConnectionNode(c: Connection): TreeOptionWithMeta {
     : c.status === 'error' ? '#d03050'
     : '#909399'
 
-  const isLoading = c.status === 'connecting'
-
   const node: TreeOptionWithMeta = {
     key: `conn/${c.id}`,
     label: c.name,
-    isLoading,
     prefix: () => h(NIcon, { color: iconColor }, { default: () => h(ServerOutline) }),
     isLeaf: false,
-    children: [],
+    children: undefined,
   }
 
   setNodeData(node, {

@@ -48,6 +48,7 @@
         :selected-keys="selectedKeys"
         :pattern="searchText"
         :node-props="nodeProps"
+        :on-load="handleLazyLoad"
         block-line
         selectable
         :draggable="true"
@@ -121,6 +122,7 @@ const {
   nodeProps,
   initTreeData,
   refreshConnection,
+  handleLazyLoad,
   onExpandedKeysChange,
   onSelectedKeysChange,
   onPanelContextMenu,
