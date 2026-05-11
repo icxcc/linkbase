@@ -5,6 +5,7 @@ import { NAlert } from 'naive-ui'
 import { LButton } from '@linkbase/components'
 import { useConnectionStore } from '@linkbase/core/stores/connection'
 import { useEditorStore } from '@linkbase/core/stores/editor'
+import { useAppStore } from '@linkbase/core/stores/app'
 import { useMonaco } from '../composables/useMonaco'
 import EditorTabs from './EditorTabs.vue'
 
@@ -16,6 +17,7 @@ const emit = defineEmits<{
 
 const connectionStore = useConnectionStore()
 const editorStore = useEditorStore()
+const appStore = useAppStore()
 const { initMonaco, getEditor, getMonaco, dispose } = useMonaco()
 
 const editorContainer = useTemplateRef<HTMLElement>('editorContainer')
@@ -52,6 +54,11 @@ onMounted(async () => {
   const editor = await initMonaco(editorContainer.value, {
     value: activeTab.value?.sql ?? '',
     language: 'sql',
+    fontSize: appStore.editorPrefs.fontSize,
+    fontFamily: appStore.editorPrefs.fontFamily,
+    tabSize: appStore.editorPrefs.tabSize,
+    wordWrap: appStore.editorPrefs.wordWrap,
+    minimap: appStore.editorPrefs.minimap,
   })
   editorReady.value = true
 
@@ -100,6 +107,23 @@ watch(dialect, async (lang) => {
     monaco.editor.setModelLanguage(editor.getModel()!, lang)
   }
 })
+
+// Watch editor preferences and apply them live
+watch(
+  () => ({ ...appStore.editorPrefs }),
+  (prefs) => {
+    const editor = getEditor()
+    if (!editor) return
+    editor.updateOptions({
+      fontSize: prefs.fontSize,
+      fontFamily: prefs.fontFamily,
+      tabSize: prefs.tabSize,
+      wordWrap: prefs.wordWrap ? 'on' : 'off',
+      minimap: { enabled: prefs.minimap },
+    })
+  },
+  { deep: true },
+)
 
 function handleExecuteAll() {
   if (!activeConnectionName.value || !activeTab.value?.sql.trim()) return
