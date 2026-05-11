@@ -515,18 +515,25 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
 
     const items: { key: string; label: string; icon?: string }[] = []
 
-    if (nodeData?.nodeType === 'folder') {
+    if (!nodeData) {
+      // Fallback: no metadata on the node
+      items.push(
+        { key: 'newConnection', label: t('connection.newConnection') },
+        { key: 'newFolder', label: t('contextMenu.newFolder') },
+      )
+    } else if (nodeData.nodeType === 'folder') {
       items.push(
         { key: 'renameFolder', label: t('contextMenu.rename') },
         { key: 'deleteFolder', label: t('contextMenu.delete') },
       )
-    } else if (nodeData?.nodeType === 'connection') {
+    } else if (nodeData.nodeType === 'connection') {
       const conn = connectionStore.connections.find((c) => c.id === nodeData.connectionId)
       if (conn?.status === 'connected') {
         items.push(
           { key: 'connDisconnect', label: t('contextMenu.disconnect') },
           { key: 'connRefresh', label: t('contextMenu.refresh') },
           { key: 'connClone', label: t('contextMenu.clone') },
+          { key: 'connEdit', label: t('contextMenu.edit') },
         )
       } else {
         items.push(
@@ -537,13 +544,55 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
         )
       }
       items.push({ key: 'connDelete', label: t('contextMenu.deleteConnection') })
-    } else if (nodeData?.nodeType === 'table' || nodeData?.nodeType === 'view' || nodeData?.nodeType === 'materializedView') {
+    } else if (nodeData.nodeType === 'database') {
+      items.push(
+        { key: 'generateUseDb', label: t('contextMenu.useDatabase') },
+        { key: 'copyName', label: t('contextMenu.copyName') },
+      )
+    } else if (nodeData.nodeType === 'schema') {
+      items.push(
+        { key: 'setSearchPath', label: t('contextMenu.setSearchPath') },
+        { key: 'copyName', label: t('contextMenu.copyName') },
+      )
+    } else if (nodeData.nodeType === 'table') {
       items.push(
         { key: 'generateSelect', label: t('contextMenu.generateSelect') },
+        { key: 'generateSelectCount', label: t('contextMenu.generateSelectCount') },
+        { key: 'generateInsert', label: t('contextMenu.generateInsert') },
+        { key: 'generateDrop', label: t('contextMenu.generateDrop') },
         { key: 'copyTableName', label: t('contextMenu.copyName') },
       )
-    } else if (nodeData?.nodeType === 'function' || nodeData?.nodeType === 'procedure') {
-      items.push({ key: 'copyName', label: t('contextMenu.copyName') })
+    } else if (nodeData.nodeType === 'view' || nodeData.nodeType === 'materializedView') {
+      items.push(
+        { key: 'generateSelect', label: t('contextMenu.generateSelect') },
+        { key: 'generateDrop', label: t('contextMenu.generateDrop') },
+        { key: 'copyTableName', label: t('contextMenu.copyName') },
+      )
+    } else if (nodeData.nodeType === 'function' || nodeData.nodeType === 'procedure') {
+      items.push(
+        { key: 'generateCall', label: t('contextMenu.generateCall') },
+        { key: 'generateDrop', label: t('contextMenu.generateDrop') },
+        { key: 'copyName', label: t('contextMenu.copyName') },
+      )
+    } else if (nodeData.nodeType === 'column') {
+      items.push(
+        { key: 'copyColumnName', label: t('contextMenu.copyName') },
+        { key: 'generateSelectColumn', label: t('contextMenu.generateSelectColumn') },
+      )
+    } else if (nodeData.nodeType === 'trigger') {
+      items.push(
+        { key: 'generateDrop', label: t('contextMenu.generateDrop') },
+        { key: 'copyName', label: t('contextMenu.copyName') },
+      )
+    } else if (nodeData.nodeType === 'category' || nodeData.nodeType === 'rootContainer') {
+      items.push(
+        { key: 'connRefresh', label: t('contextMenu.refresh') },
+      )
+    } else {
+      // Generic fallback for other node types (sequence, index, event, role, etc.)
+      items.push(
+        { key: 'copyName', label: t('contextMenu.copyName') },
+      )
     }
 
     contextMenu.value = {
@@ -586,7 +635,9 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
         if (nodeData?.connectionId) deleteConnection(nodeData.connectionId)
         break
       case 'connRefresh':
-        if (nodeData?.connectionId) refreshConnection(nodeData.connectionId)
+        if (nodeData?.connectionId) {
+          refreshConnection(nodeData.connectionId)
+        }
         break
       case 'connClone':
         if (nodeData?.connectionId) handleCloneConnection(nodeData.connectionId)
@@ -600,10 +651,69 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
         if (qualifiedName) emit('executeSql', `SELECT * FROM ${qualifiedName} LIMIT 100`)
         break
       }
+      case 'generateSelectCount': {
+        const tableName = nodeData?.tableName || ''
+        const qualifiedName = nodeData?.schemaName ? `${nodeData.schemaName}.${tableName}` : tableName
+        if (qualifiedName) emit('executeSql', `SELECT COUNT(*) FROM ${qualifiedName}`)
+        break
+      }
+      case 'generateInsert': {
+        const tableName = nodeData?.tableName || ''
+        const qualifiedName = nodeData?.schemaName ? `${nodeData.schemaName}.${tableName}` : tableName
+        if (qualifiedName) emit('executeSql', `INSERT INTO ${qualifiedName} () VALUES ()`)
+        break
+      }
+      case 'generateDrop': {
+        const name = nodeData?.tableName || String(nodeKey).split('/').pop() || ''
+        const nodeType = nodeData?.nodeType || ''
+        let dropType = 'TABLE'
+        if (nodeType === 'view') dropType = 'VIEW'
+        else if (nodeType === 'materializedView') dropType = 'MATERIALIZED VIEW'
+        else if (nodeType === 'function') dropType = 'FUNCTION'
+        else if (nodeType === 'procedure') dropType = 'PROCEDURE'
+        else if (nodeType === 'trigger') dropType = 'TRIGGER'
+        const qualifiedName = nodeData?.schemaName ? `${nodeData.schemaName}.${name}` : name
+        if (qualifiedName) emit('executeSql', `DROP ${dropType} IF EXISTS ${qualifiedName}`)
+        break
+      }
+      case 'generateCall': {
+        const name = nodeData?.tableName || ''
+        const qualifiedName = nodeData?.schemaName ? `${nodeData.schemaName}.${name}` : name
+        if (qualifiedName) {
+          if (nodeData?.nodeType === 'procedure') {
+            emit('executeSql', `CALL ${qualifiedName}()`)
+          } else {
+            emit('executeSql', `SELECT ${qualifiedName}()`)
+          }
+        }
+        break
+      }
+      case 'generateSelectColumn': {
+        const colName = nodeData?.columnName || ''
+        const tableName = nodeData?.tableName || ''
+        const qualifiedTable = nodeData?.schemaName ? `${nodeData.schemaName}.${tableName}` : tableName
+        if (colName && qualifiedTable) {
+          emit('executeSql', `SELECT ${colName} FROM ${qualifiedTable} LIMIT 100`)
+        }
+        break
+      }
+      case 'generateUseDb': {
+        const dbName = nodeData?.databaseName || ''
+        if (dbName) emit('executeSql', `USE \`${dbName}\``)
+        break
+      }
+      case 'setSearchPath': {
+        const schemaName = nodeData?.schemaName || ''
+        if (schemaName) emit('executeSql', `SET search_path TO ${schemaName}`)
+        break
+      }
       case 'copyTableName':
       case 'copyName':
-        if (nodeData?.tableName) navigator.clipboard.writeText(nodeData.tableName)
+      case 'copyColumnName': {
+        const name = nodeData?.columnName || nodeData?.tableName || nodeData?.databaseName || nodeData?.schemaName || ''
+        if (name) navigator.clipboard.writeText(name)
         break
+      }
     }
 
     contextMenu.value.show = false
@@ -711,9 +821,12 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
 
   // ─── Node Props ──────────────────────────────────────────────────────────
 
-  const nodeProps = (node: TreeOption) => ({
-    shouldExpand: false,
-    'on-contextmenu': (e: MouseEvent) => onNodeContextMenu(e, node),
+  const nodeProps = (info: { option: TreeOption }) => ({
+    onContextmenu: (e: MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      onNodeContextMenu(e, info.option)
+    },
   })
 
   // ─── Public API ──────────────────────────────────────────────────────────

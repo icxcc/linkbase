@@ -1,5 +1,5 @@
 <template>
-  <div class="connection-tree" @contextmenu.prevent="onPanelContextMenu">
+  <div class="connection-tree" @contextmenu.prevent.self="onPanelContextMenu">
     <div class="tree-toolbar">
       <n-input
         v-model:value="searchText"
@@ -16,7 +16,7 @@
       </n-button>
     </div>
 
-    <div class="tree-content">
+    <div class="tree-content" v-if="treeData.length > 0" @contextmenu.prevent="onTreeAreaContextMenu">
       <n-tree
         ref="treeRef"
         :data="treeData"
@@ -49,11 +49,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { NTree, NInput, NButton, NIcon, type TreeOption } from 'naive-ui'
-import { SearchOutline, AddOutline } from '@vicons/ionicons5'
+import { ref, onMounted, h } from 'vue'
+import { NTree, NInput, NButton, NIcon, NTooltip, type TreeOption } from 'naive-ui'
+import { SearchOutline, AddOutline, RefreshOutline, ServerOutline } from '@vicons/ionicons5'
 import { LContextMenu } from '@linkbase/components'
 import { useConnectionTree } from '../composables/useConnectionTree'
+import { useConnectionStore } from '@linkbase/core/stores/connection'
+
+const ChevronCollapseOutline = {
+  render() {
+    return h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 512 512', fill: 'currentColor' }, [
+      h('path', { d: 'M256 48l-160 160h320L256 48zM256 464l160-160H96l160 160z' })
+    ])
+  }
+}
 
 const emit = defineEmits<{
   openCreateDialog: []
@@ -71,6 +80,7 @@ const {
   contextMenu,
   nodeProps,
   initTreeData,
+  refreshConnection,
   onExpandedKeysChange,
   onSelectedKeysChange,
   onPanelContextMenu,
@@ -79,6 +89,27 @@ const {
   allowDrop,
   onDrop,
 } = useConnectionTree(emit)
+
+function onTreeAreaContextMenu(e: MouseEvent) {
+  // Only show panel context menu if clicking on empty area (not on a tree node)
+  const target = e.target as HTMLElement
+  const isNodeClick = target.closest('.n-tree-node')
+  if (!isNodeClick) {
+    onPanelContextMenu(e)
+  }
+}
+
+function collapseAll() {
+  expandedKeys.value = []
+}
+
+function refreshAll() {
+  for (const conn of connectionStore.connections) {
+    if (conn.status === 'connected') {
+      refreshConnection(conn.id)
+    }
+  }
+}
 
 onMounted(() => {
   initTreeData()
