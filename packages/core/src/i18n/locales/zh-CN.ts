@@ -52,6 +52,9 @@ export default {
     editConnection: '编辑连接',
     folder: '分组',
     noFolder: '无分组',
+    collapseAll: '全部折叠',
+    refresh: '刷新',
+    emptyHint: '点击上方按钮创建第一个数据库连接',
   },
   editor: {
     notConnected: '未连接',
