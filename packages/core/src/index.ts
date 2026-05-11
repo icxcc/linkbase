@@ -3,6 +3,8 @@ export {
   useAppStore,
   type Theme,
   type Locale,
+  type EditorPreferences,
+  type ResultPreferences,
 } from './stores/app'
 
 export {
@@ -34,6 +36,11 @@ export { i18n } from './i18n'
 
 // Composables
 export { useTheme } from './composables/useTheme'
+
+// Components
+export { default as SettingsDialog } from './components/SettingsDialog.vue'
+export { default as CommandPalette } from './components/CommandPalette.vue'
+export { default as DangerousSqlDialog } from './components/DangerousSqlDialog.vue'
 
 // API
 export {

@@ -14,6 +14,11 @@ export interface UseMonacoOptions {
   value?: string
   language?: string
   readOnly?: boolean
+  fontSize?: number
+  fontFamily?: string
+  tabSize?: number
+  wordWrap?: boolean
+  minimap?: boolean
 }
 
 let monacoInstance: typeof Monaco | null = null
@@ -55,13 +60,14 @@ export function useMonaco() {
       value: options?.value ?? '',
       language: options?.language ?? 'sql',
       theme: 'vs-dark',
-      fontSize: 14,
-      fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', 'Monaco', monospace",
-      minimap: { enabled: false },
+      fontSize: options?.fontSize ?? 14,
+      fontFamily: options?.fontFamily ?? "'Cascadia Code', 'Fira Code', 'Consolas', 'Monaco', monospace",
+      minimap: { enabled: options?.minimap ?? false },
       lineNumbers: 'on',
       scrollBeyondLastLine: false,
       automaticLayout: true,
-      tabSize: 2,
+      tabSize: options?.tabSize ?? 2,
+      wordWrap: options?.wordWrap ? 'on' : 'off',
       readOnly: options?.readOnly ?? false,
     })
 
