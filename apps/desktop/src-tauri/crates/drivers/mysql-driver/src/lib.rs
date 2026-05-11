@@ -583,8 +583,10 @@ impl DbDriver for MySqlDriver {
             let guard = self.pool.lock().await;
             guard.as_ref().ok_or_else(Self::not_connected)?.clone()
         };
+        // USE cannot be executed via prepared statements in MySQL.
+        // Use raw_sql which sends the statement as a simple text query.
         let use_sql = format!("USE `{}`", database.replace('`', "``"));
-        sqlx::query::<sqlx::MySql>(&use_sql)
+        sqlx::raw_sql(&use_sql)
             .execute(&pool)
             .await
             .map_err(Self::query_err)?;
