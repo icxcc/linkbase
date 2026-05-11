@@ -1,5 +1,5 @@
 <template>
-  <div class="connection-tree" @contextmenu.prevent="onPanelContextMenu">
+  <div class="connection-tree" @contextmenu.prevent.self="onPanelContextMenu">
     <div class="tree-toolbar">
       <n-input
         v-model:value="searchText"
@@ -40,7 +40,7 @@
       </div>
     </div>
 
-    <div class="tree-content" v-if="treeData.length > 0">
+    <div class="tree-content" v-if="treeData.length > 0" @contextmenu.prevent="onTreeAreaContextMenu">
       <n-tree
         ref="treeRef"
         :data="treeData"
@@ -120,6 +120,7 @@ const {
   contextMenu,
   nodeProps,
   initTreeData,
+  refreshConnection,
   onExpandedKeysChange,
   onSelectedKeysChange,
   onPanelContextMenu,
@@ -129,18 +130,23 @@ const {
   onDrop,
 } = useConnectionTree(emit)
 
+function onTreeAreaContextMenu(e: MouseEvent) {
+  // Only show panel context menu if clicking on empty area (not on a tree node)
+  const target = e.target as HTMLElement
+  const isNodeClick = target.closest('.n-tree-node')
+  if (!isNodeClick) {
+    onPanelContextMenu(e)
+  }
+}
+
 function collapseAll() {
   expandedKeys.value = []
 }
 
 function refreshAll() {
-  // Refresh all connected connections
   for (const conn of connectionStore.connections) {
     if (conn.status === 'connected') {
-      const key = `conn/${conn.id}`
-      if (expandedKeys.value.includes(key)) {
-        onExpandedKeysChange([...expandedKeys.value])
-      }
+      refreshConnection(conn.id)
     }
   }
 }

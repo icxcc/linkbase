@@ -515,18 +515,24 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
 
     const items: { key: string; label: string; icon?: string }[] = []
 
-    if (nodeData?.nodeType === 'folder') {
+    if (!nodeData) {
+      items.push(
+        { key: 'newConnection', label: t('connection.newConnection') },
+        { key: 'newFolder', label: t('contextMenu.newFolder') },
+      )
+    } else if (nodeData.nodeType === 'folder') {
       items.push(
         { key: 'renameFolder', label: t('contextMenu.rename') },
         { key: 'deleteFolder', label: t('contextMenu.delete') },
       )
-    } else if (nodeData?.nodeType === 'connection') {
+    } else if (nodeData.nodeType === 'connection') {
       const conn = connectionStore.connections.find((c) => c.id === nodeData.connectionId)
       if (conn?.status === 'connected') {
         items.push(
           { key: 'connDisconnect', label: t('contextMenu.disconnect') },
           { key: 'connRefresh', label: t('contextMenu.refresh') },
           { key: 'connClone', label: t('contextMenu.clone') },
+          { key: 'connEdit', label: t('contextMenu.edit') },
         )
       } else {
         items.push(
@@ -537,13 +543,54 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
         )
       }
       items.push({ key: 'connDelete', label: t('contextMenu.deleteConnection') })
-    } else if (nodeData?.nodeType === 'table' || nodeData?.nodeType === 'view' || nodeData?.nodeType === 'materializedView') {
+    } else if (nodeData.nodeType === 'database') {
+      items.push(
+        { key: 'generateUseDb', label: t('contextMenu.useDatabase') },
+        { key: 'copyName', label: t('contextMenu.copyName') },
+      )
+    } else if (nodeData.nodeType === 'schema') {
+      items.push(
+        { key: 'setSearchPath', label: t('contextMenu.setSearchPath') },
+        { key: 'copyName', label: t('contextMenu.copyName') },
+      )
+    } else if (nodeData.nodeType === 'table') {
       items.push(
         { key: 'generateSelect', label: t('contextMenu.generateSelect') },
+        { key: 'generateSelectCount', label: t('contextMenu.generateSelectCount') },
+        { key: 'generateInsert', label: t('contextMenu.generateInsert') },
+        { key: 'generateDrop', label: t('contextMenu.generateDrop') },
         { key: 'copyTableName', label: t('contextMenu.copyName') },
       )
-    } else if (nodeData?.nodeType === 'function' || nodeData?.nodeType === 'procedure') {
-      items.push({ key: 'copyName', label: t('contextMenu.copyName') })
+    } else if (nodeData.nodeType === 'view' || nodeData.nodeType === 'materializedView') {
+      items.push(
+        { key: 'generateSelect', label: t('contextMenu.generateSelect') },
+        { key: 'generateDrop', label: t('contextMenu.generateDrop') },
+        { key: 'copyTableName', label: t('contextMenu.copyName') },
+      )
+    } else if (nodeData.nodeType === 'function' || nodeData.nodeType === 'procedure') {
+      items.push(
+        { key: 'generateCall', label: t('contextMenu.generateCall') },
+        { key: 'generateDrop', label: t('contextMenu.generateDrop') },
+        { key: 'copyName', label: t('contextMenu.copyName') },
+      )
+    } else if (nodeData.nodeType === 'column') {
+      items.push(
+        { key: 'copyColumnName', label: t('contextMenu.copyName') },
+        { key: 'generateSelectColumn', label: t('contextMenu.generateSelectColumn') },
+      )
+    } else if (nodeData.nodeType === 'trigger') {
+      items.push(
+        { key: 'generateDrop', label: t('contextMenu.generateDrop') },
+        { key: 'copyName', label: t('contextMenu.copyName') },
+      )
+    } else if (nodeData.nodeType === 'category' || nodeData.nodeType === 'rootContainer') {
+      items.push(
+        { key: 'connRefresh', label: t('contextMenu.refresh') },
+      )
+    } else {
+      items.push(
+        { key: 'copyName', label: t('contextMenu.copyName') },
+      )
     }
 
     contextMenu.value = {
@@ -711,9 +758,12 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
 
   // ─── Node Props ──────────────────────────────────────────────────────────
 
-  const nodeProps = (node: TreeOption) => ({
-    shouldExpand: false,
-    'on-contextmenu': (e: MouseEvent) => onNodeContextMenu(e, node),
+  const nodeProps = (info: { option: TreeOption }) => ({
+    onContextmenu: (e: MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      onNodeContextMenu(e, info.option)
+    },
   })
 
   // ─── Public API ──────────────────────────────────────────────────────────
