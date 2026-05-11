@@ -274,6 +274,69 @@ impl DbDriver for PostgresDriver {
         Ok(())
     }
 
+    async fn get_databases(&self) -> Result<Vec<String>, AppError> {
+        let pool = {
+            let guard = self.pool.lock().await;
+            guard.as_ref().ok_or_else(Self::not_connected)?.clone()
+        };
+        Self::fetch_accessible_databases(&pool).await
+    }
+
+    async fn get_schemas(&self, _database: Option<&str>) -> Result<Vec<String>, AppError> {
+        let pool = {
+            let guard = self.pool.lock().await;
+            guard.as_ref().ok_or_else(Self::not_connected)?.clone()
+        };
+
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT schema_name FROM information_schema.schemata \
+             WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
+             ORDER BY schema_name",
+        )
+        .fetch_all(&pool)
+        .await
+        .map_err(Self::query_err)?;
+
+        Ok(rows.into_iter().map(|(name,)| name).collect())
+    }
+
+    async fn switch_database(&mut self, database: &str) -> Result<(), AppError> {
+        // PostgreSQL requires reconnecting to switch databases
+        let base_url = {
+            let url_guard = self.connection_url.lock().await;
+            url_guard.as_ref().ok_or_else(Self::not_connected)?.clone()
+        };
+
+        // Close existing pool
+        {
+            let mut guard = self.pool.lock().await;
+            if let Some(pool) = guard.take() {
+                pool.close().await;
+            }
+        }
+
+        let new_url = Self::replace_database_in_url(&base_url, database);
+        let pool = sqlx::PgPool::connect(&new_url)
+            .await
+            .map_err(Self::conn_err)?;
+
+        let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&pool)
+            .await
+            .map_err(Self::query_err)?;
+
+        let mut pool_guard = self.pool.lock().await;
+        *pool_guard = Some(pool);
+
+        let mut pid_guard = self.backend_pid.lock().await;
+        *pid_guard = Some(backend_pid);
+
+        let mut url_guard = self.connection_url.lock().await;
+        *url_guard = Some(new_url);
+
+        Ok(())
+    }
+
     async fn test_connection(&mut self, config: &ConnectionConfig) -> Result<TestResult, AppError> {
         let url = config.build_connection_string();
         if url.is_empty() {
