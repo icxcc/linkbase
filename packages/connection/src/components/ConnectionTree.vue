@@ -1,5 +1,5 @@
 <template>
-  <div class="connection-tree" @contextmenu.prevent="onPanelContextMenu">
+  <div class="connection-tree" @contextmenu.prevent.self="onPanelContextMenu">
     <div class="tree-toolbar">
       <n-input
         v-model:value="searchText"

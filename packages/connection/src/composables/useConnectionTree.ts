@@ -750,9 +750,12 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
 
   // ─── Node Props ──────────────────────────────────────────────────────────
 
-  const nodeProps = (node: TreeOption) => ({
-    shouldExpand: false,
-    'on-contextmenu': (e: MouseEvent) => onNodeContextMenu(e, node),
+  const nodeProps = (info: { option: TreeOption }) => ({
+    onContextmenu: (e: MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      onNodeContextMenu(e, info.option)
+    },
   })
 
   // ─── Public API ──────────────────────────────────────────────────────────
