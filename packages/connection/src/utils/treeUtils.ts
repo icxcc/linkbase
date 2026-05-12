@@ -33,22 +33,17 @@ export function getStatusColor(status: string): string {
 }
 
 export function buildConnectionNode(c: Connection): TreeOptionWithMeta {
+  const iconColor = c.status === 'connected' ? '#18a058'
+    : c.status === 'connecting' ? '#f0a020'
+    : c.status === 'error' ? '#d03050'
+    : '#909399'
+
   const node: TreeOptionWithMeta = {
     key: `conn/${c.id}`,
     label: c.name,
-    prefix: () => h(NIcon, null, { default: () => h(ServerOutline) }),
-    suffix: () => h('span', {
-      style: {
-        display: 'inline-block',
-        width: '8px',
-        height: '8px',
-        borderRadius: '50%',
-        backgroundColor: getStatusColor(c.status),
-        marginLeft: '6px',
-      }
-    }),
+    prefix: () => h(NIcon, { color: iconColor }, { default: () => h(ServerOutline) }),
     isLeaf: false,
-    children: [],
+    children: undefined,
   }
 
   setNodeData(node, {
