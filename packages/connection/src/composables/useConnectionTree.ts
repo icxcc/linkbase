@@ -316,16 +316,13 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
         node.children = []
       }
 
-  async function refreshConnection(connId: string): Promise<void> {
-    connectionMetadata.value.delete(connId)
-    // Clear cached children for this connection
-    for (const key of loadedChildrenCache.keys()) {
-      if (key.startsWith(`conn/${connId}`)) {
-        loadedChildrenCache.delete(key)
-      }
-    }
-    await loadConnectionMetadata(connId)
-  }
+    } else if (nodeData.nodeType === 'schema') {
+      // Schema node expanded: show category folders under schema
+      const connId = nodeData.connectionId!
+      const dbName = nodeData.databaseName!
+      const schName = nodeData.schemaName!
+      const c = connectionStore.connections.find((x) => x.id === connId)
+      if (!c) return
 
       const template = TREE_NODE_TEMPLATES[c.driver_type as DriverType]
       if (!template) return
