@@ -60,14 +60,41 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
 
   // ─── Tree Data Building ──────────────────────────────────────────────────
 
+  /** Cache of already-loaded children by node key, to avoid resetting on refreshTreeData */
+  const loadedChildrenCache = new Map<string, TreeOption[] | undefined>()
+
   function refreshTreeData() {
+    // Save existing children for nodes that have been loaded
+    function cacheExistingChildren(nodes: TreeOption[]) {
+      for (const node of nodes) {
+        if (node.children && node.children.length > 0) {
+          loadedChildrenCache.set(String(node.key), node.children)
+        }
+        if (node.children) {
+          cacheExistingChildren(node.children)
+        }
+      }
+    }
+    if (treeData.value.length > 0) {
+      cacheExistingChildren(treeData.value as TreeOption[])
+    }
+
     const data: TreeOptionWithMeta[] = []
     for (const group of connectionStore.connectionsByFolder) {
       if (group.folder) {
+        const folderChildren = group.connections.map((c: Connection) => {
+          const node = buildConnectionNode(c)
+          // Restore cached children if previously loaded
+          const cached = loadedChildrenCache.get(String(node.key))
+          if (cached) {
+            node.children = cached
+          }
+          return node
+        })
         const folderNode: TreeOptionWithMeta = {
           key: `folder/${group.folder.id}`,
           label: group.folder.name,
-          children: group.connections.map((c: Connection) => buildConnectionNode(c)),
+          children: folderChildren,
           prefix: () => h(NIcon, null, { default: () => h(FolderOutline) }),
           suffix: () => h(NTag, { size: 'tiny', round: true }, { default: () => String(group.connections.length) }),
         }
@@ -75,7 +102,13 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
         data.push(folderNode)
       } else {
         for (const c of group.connections) {
-          data.push(buildConnectionNode(c))
+          const node = buildConnectionNode(c)
+          // Restore cached children if previously loaded
+          const cached = loadedChildrenCache.get(String(node.key))
+          if (cached) {
+            node.children = cached
+          }
+          data.push(node)
         }
       }
     }
@@ -383,6 +416,12 @@ export function useConnectionTree(emit: ReturnType<typeof defineEmits<{
 
   async function refreshConnection(connId: string): Promise<void> {
     connectionMetadata.value.delete(connId)
+    // Clear cached children for this connection
+    for (const key of loadedChildrenCache.keys()) {
+      if (key.startsWith(`conn/${connId}`)) {
+        loadedChildrenCache.delete(key)
+      }
+    }
     await loadConnectionMetadata(connId)
   }
 
